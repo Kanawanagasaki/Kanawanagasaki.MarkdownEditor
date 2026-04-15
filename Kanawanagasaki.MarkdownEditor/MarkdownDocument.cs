@@ -6,10 +6,6 @@ namespace Kanawanagasaki.MarkdownEditor;
 
 public partial class MarkdownDocument : Ast.MarkdownDocument
 {
-    public MarkdownDocument() : base()
-    {
-    }
-
     public void Write(string text)
     {
         if (string.IsNullOrEmpty(text))
@@ -21,7 +17,11 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void WriteLine(string? text = null)
     {
-        throw new NotImplementedException();
+        var paragraph = GetOrCreateLastParagraph();
+        if (!string.IsNullOrEmpty(text))
+            AppendLiteralToParagraph(paragraph, text);
+        paragraph.Inline ??= new InlineRoot();
+        paragraph.Inline.AppendChild(new LineBreakInline());
     }
 
     public void WriteParagraph(string? text = null)
@@ -33,7 +33,69 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void InsertLine(int lineOffset, string text)
     {
-        throw new NotImplementedException();
+        ParagraphBlock paragraph;
+        if (Children.Count > 0 && Children[^1] is ParagraphBlock lastPara)
+        {
+            paragraph = lastPara;
+        }
+        else
+        {
+            paragraph = new ParagraphBlock();
+            AddChild(paragraph);
+        }
+
+        paragraph.Inline ??= new InlineRoot();
+
+        if (lineOffset <= 0)
+        {
+            paragraph.Inline.PrependChild(new LineBreakInline());
+            if (!string.IsNullOrEmpty(text))
+                paragraph.Inline.PrependChild(new LiteralInline(text));
+            return;
+        }
+
+        int totalLineBreaks = 0;
+        Inline? targetLineBreak = null;
+        var child = paragraph.Inline.FirstChild;
+        while (child is not null)
+        {
+            if (child is LineBreakInline)
+            {
+                if (totalLineBreaks == lineOffset - 1)
+                    targetLineBreak = child;
+                totalLineBreaks++;
+            }
+            child = child.NextSibling;
+        }
+
+        if (targetLineBreak is not null)
+        {
+            Inline lastInserted = targetLineBreak;
+            if (!string.IsNullOrEmpty(text))
+            {
+                var lit = new LiteralInline(text);
+                InlineSplitter.InsertAfterInline(lastInserted, lit);
+                lastInserted = lit;
+            }
+            InlineSplitter.InsertAfterInline(lastInserted, new LineBreakInline());
+        }
+        else if (lineOffset == totalLineBreaks + 1)
+        {
+            paragraph.Inline.AppendChild(new LineBreakInline());
+            if (!string.IsNullOrEmpty(text))
+            {
+                paragraph.Inline.AppendChild(new LiteralInline(text));
+                paragraph.Inline.AppendChild(new LineBreakInline());
+            }
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                paragraph.Inline.AppendChild(new LineBreakInline());
+                paragraph.Inline.AppendChild(new LiteralInline(text));
+            }
+        }
     }
 
     public void InsertParagraph(int lineOffset, string text)
@@ -170,7 +232,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             AddBlockToQuote(prevQuote, block);
             return;
         }
-        
+
         if (index < parent.Children.Count - 1 && parent.Children[index + 1] is QuoteBlock nextQuote)
         {
             parent.RemoveChildAt(index);
