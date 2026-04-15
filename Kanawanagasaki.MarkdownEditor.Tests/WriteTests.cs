@@ -104,7 +104,7 @@ public class WriteTests
         doc.InsertLine(1, "Appended");
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("Original\n\nAppended", md);
+        Assert.Equal("Original\nAppended\n", md);
     }
 
     [Fact]
