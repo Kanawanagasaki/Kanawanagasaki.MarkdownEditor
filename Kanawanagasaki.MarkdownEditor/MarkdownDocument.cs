@@ -17,11 +17,28 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void WriteLine(string? text = null)
     {
-        var paragraph = GetOrCreateLastParagraph();
         if (!string.IsNullOrEmpty(text))
-            AppendLiteralToParagraph(paragraph, text);
-        paragraph.Inline ??= new InlineRoot();
-        paragraph.Inline.AppendChild(new LineBreakInline());
+        {
+            if (Children.Count > 0 && Children[^1] is LeafBlock lastLeaf
+                && lastLeaf.Inline is not null
+                && lastLeaf.Inline.LastChild is not LineBreakInline)
+            {
+                lastLeaf.Inline.AppendChild(new LineBreakInline());
+            }
+
+            var paragraph = new ParagraphBlock();
+            paragraph.Inline = new InlineRoot();
+            paragraph.Inline.AppendChild(new LiteralInline(text));
+            paragraph.Inline.AppendChild(new LineBreakInline());
+            AddChild(paragraph);
+            _nextWriteCreatesNewParagraph = false;
+        }
+        else
+        {
+            var paragraph = GetOrCreateLastParagraph();
+            paragraph.Inline ??= new InlineRoot();
+            paragraph.Inline.AppendChild(new LineBreakInline());
+        }
     }
 
     public void WriteParagraph(string? text = null)
@@ -829,6 +846,15 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         return false;
     }
 
+    private static bool LastLeafEndsWithSoftBreak(Block block)
+    {
+        if (block is LeafBlock leaf)
+            return leaf.Inline?.LastChild is LineBreakInline;
+        if (block is ContainerBlock container && container.Children.Count > 0)
+            return LastLeafEndsWithSoftBreak(container.Children[^1]);
+        return false;
+    }
+
     private void MakeLinkOrImage(LeafBlock block, int start, int end, string url, string? title, bool isImage)
     {
         ArgumentNullException.ThrowIfNull(block);
@@ -1078,7 +1104,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         for (var i = 0; i < blocks.Count; i++)
         {
             if (i > 0)
-                sb.Append(newLine).Append(newLine);
+            {
+                var prev = blocks[i - 1];
+                bool prevEndsWithSoftBreak = prev is LeafBlock pl
+                    && pl.Inline?.LastChild is LineBreakInline;
+                if (!prevEndsWithSoftBreak)
+                    sb.Append(newLine).Append(newLine);
+            }
             else if (indentLevel > 0)
                 sb.Append(newLine);
 
@@ -1120,13 +1152,25 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 var prefix = new string('>', quote.NestingLevel);
                 if (quote.NestingLevel > 0) prefix += " ";
                 var lines = quoteText.Split('\n');
-                for (var i = 0; i < lines.Length; i++)
+
+                bool quoteEndsWithLB = quote.Children.Count > 0
+                    && LastLeafEndsWithSoftBreak(quote.Children[^1]);
+
+                var lineCount = lines.Length;
+                if (quoteEndsWithLB)
+                    while (lineCount > 0 && string.IsNullOrEmpty(lines[lineCount - 1]))
+                        lineCount--;
+
+                for (var i = 0; i < lineCount; i++)
                 {
                     if (i > 0) sb.Append(newLine);
                     sb.Append(indent);
                     sb.Append(prefix);
                     sb.Append(lines[i].TrimEnd('\r'));
                 }
+
+                if (quoteEndsWithLB && lineCount > 0)
+                    sb.Append(newLine);
                 break;
 
             case FencedCodeBlock fenced:
@@ -1174,7 +1218,14 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         for (var i = 0; i < list.Children.Count; i++)
         {
             if (i > 0)
-                sb.Append(newLine);
+            {
+                var prevItem = list.Children[i - 1] as ListItemBlock;
+                bool prevEndsWithLB = false;
+                if (prevItem?.Children.Count > 0 && prevItem.Children[0] is ParagraphBlock prevPara)
+                    prevEndsWithLB = prevPara.Inline?.LastChild is LineBreakInline;
+                if (!prevEndsWithLB)
+                    sb.Append(newLine);
+            }
 
             var item = list.Children[i];
             sb.Append(indent);
