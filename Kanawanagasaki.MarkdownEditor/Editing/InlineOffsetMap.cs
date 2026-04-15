@@ -1,29 +1,16 @@
+namespace Kanawanagasaki.MarkdownEditor.Editing;
+
 using System.Text;
 using Kanawanagasaki.MarkdownEditor.Ast;
 
-namespace Kanawanagasaki.MarkdownEditor.Editing;
-
-/// <summary>
-/// Internal helper that computes the linear character offset of each inline node
-/// within a leaf block, by flattening the inline tree into an ordered sequence
-/// of literal content segments.
-/// </summary>
 internal sealed class InlineOffsetMap
 {
-    /// <summary>
-    /// An entry representing a contiguous run of characters contributed by a single inline node.
-    /// </summary>
     internal sealed class Entry
     {
-        /// <summary>The inline node that contributes these characters.</summary>
         public Inline Inline { get; }
-        /// <summary>The start offset (inclusive) within the flattened text.</summary>
         public int Start { get; }
-        /// <summary>The end offset (inclusive) within the flattened text.</summary>
         public int End { get; }
-        /// <summary>The character offset within this inline's own text content that this entry starts at.</summary>
         public int ContentOffset { get; }
-        /// <summary>The length of content contributed by this entry.</summary>
         public int Length => End - Start + 1;
 
         public Entry(Inline inline, int start, int end, int contentOffset)
@@ -37,16 +24,10 @@ internal sealed class InlineOffsetMap
 
     private readonly List<Entry> _entries = [];
 
-    /// <summary>
-    /// The total length of the flattened inline text.
-    /// </summary>
     public int TotalLength { get; private set; }
 
     public IReadOnlyList<Entry> Entries => _entries;
 
-    /// <summary>
-    /// Builds the offset map by traversing the inline tree of a leaf block.
-    /// </summary>
     public static InlineOffsetMap Build(LeafBlock block)
     {
         var map = new InlineOffsetMap();
@@ -55,9 +36,6 @@ internal sealed class InlineOffsetMap
         return map;
     }
 
-    /// <summary>
-    /// Gets the flattened text represented by this map.
-    /// </summary>
     public string GetText()
     {
         var sb = new StringBuilder();
@@ -71,9 +49,6 @@ internal sealed class InlineOffsetMap
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Finds all entries that overlap with the given [rangeStart, rangeEnd] character range.
-    /// </summary>
     public List<Entry> GetEntriesInRange(int rangeStart, int rangeEnd)
     {
         var result = new List<Entry>();
@@ -86,9 +61,6 @@ internal sealed class InlineOffsetMap
         return result;
     }
 
-    /// <summary>
-    /// Finds the entry that contains the given character offset, or null if none.
-    /// </summary>
     public Entry? FindEntryAt(int offset)
     {
         foreach (var entry in _entries)
@@ -99,9 +71,6 @@ internal sealed class InlineOffsetMap
         return null;
     }
 
-    /// <summary>
-    /// Finds the LiteralInline entry at a given offset.
-    /// </summary>
     public Entry? FindLiteralAt(int offset)
     {
         var entry = FindEntryAt(offset);
@@ -151,7 +120,6 @@ internal sealed class InlineOffsetMap
                 BuildFromContainer(container);
                 break;
             case LineBreakInline:
-                // Line breaks contribute no visible characters to the inline text
                 break;
             case AutolinkInline auto:
                 if (auto.Url.Length > 0)

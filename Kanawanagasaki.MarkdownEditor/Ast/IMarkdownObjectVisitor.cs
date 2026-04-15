@@ -1,8 +1,5 @@
 namespace Kanawanagasaki.MarkdownEditor.Ast;
 
-/// <summary>
-/// Visitor interface for traversing the markdown AST.
-/// </summary>
 public interface IMarkdownObjectVisitor
 {
     void Visit(MarkdownDocument doc);
