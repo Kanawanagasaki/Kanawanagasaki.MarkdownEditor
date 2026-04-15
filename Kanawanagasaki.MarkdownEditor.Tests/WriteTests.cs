@@ -200,7 +200,7 @@ public class WriteTests
         doc.InsertLine(100, "Clamped to end");
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("Original\nClamped to end", md);
+        Assert.Equal("Original\nClamped to end\n", md);
     }
 
     [Fact]
