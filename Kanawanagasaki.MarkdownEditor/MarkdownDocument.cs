@@ -36,12 +36,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         AppendLiteralToParagraph(paragraph, text);
     }
 
-    /// <summary>
-    /// Writes text at the end of the document followed by a line break,
-    /// effectively starting a new line. The next Write call will create a new paragraph.
-    /// </summary>
-    /// <param name="text">The text to write before the line break. If null, only a line break is written.</param>
-    public void WriteLine(string? text = null)
+    public void WriteParagraph(string? text = null)
     {
         if (text is not null)
             Write(text);
@@ -50,14 +45,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         _nextWriteCreatesNewParagraph = true;
     }
 
-    /// <summary>
-    /// Inserts a new line of text at the specified zero-based line offset.
-    /// Line offset 0 inserts before the first block, 1 after the first block, etc.
-    /// The inserted line becomes a new ParagraphBlock.
-    /// </summary>
-    /// <param name="lineOffset">The zero-based line offset at which to insert.</param>
-    /// <param name="text">The text content of the new line.</param>
-    public void InsertLine(int lineOffset, string text)
+    // Should write a new line like <br/> in html
+    public void WriteLine(string? text = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void InsertParagraph(int lineOffset, string text)
     {
         var paragraph = new ParagraphBlock();
         if (!string.IsNullOrEmpty(text))
@@ -232,43 +226,9 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         ConvertToBlockquote(block);
     }
 
-    /// <summary>
-    /// Wraps the specified block in an additional level of blockquote nesting.
-    /// If the block is already inside a QuoteBlock, a new nested QuoteBlock is created.
-    /// </summary>
-    public void ConvertToNestedBlockquote(Block block)
+    public void ConvertToBlockquote(int lineIndex, int nestedLevel)
     {
-        ArgumentNullException.ThrowIfNull(block);
-
-        var parent = block.Parent as ContainerBlock;
-        if (parent is null)
-            throw new InvalidOperationException("Block has no parent container.");
-
-        var index = parent.IndexOfChild(block);
-        if (index < 0) return;
-
-        if (parent is QuoteBlock existingQuote)
-        {
-            // Create a nested quote
-            var innerQuote = new QuoteBlock { NestingLevel = existingQuote.NestingLevel + 1 };
-            parent.RemoveChildAt(index);
-            innerQuote.AddChild(block);
-            parent.InsertChild(index, innerQuote);
-        }
-        else
-        {
-            // Not in a quote yet, just wrap in a single quote (same as ConvertToBlockquote)
-            ConvertToBlockquote(block);
-        }
-    }
-
-    /// <summary>
-    /// Converts the block at the given line index to a nested blockquote.
-    /// </summary>
-    public void ConvertToNestedBlockquote(int lineIndex)
-    {
-        var block = GetBlockAtLine(lineIndex);
-        ConvertToNestedBlockquote(block);
+        throw new NotImplementedException();
     }
 
     /// <summary>
@@ -391,28 +351,71 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         // Convert to inclusive for internal processing
         var inclusiveEnd = end - 1;
 
-        // Collect the text content in the range
-        var sb = new StringBuilder();
+        // Step 1: Split at the start boundary, then rebuild the map
+        SplitAtOffset(block, start);
+        map = InlineOffsetMap.Build(block);
+
+        // Step 2: Split at end boundary, then rebuild
+        if (end < map.TotalLength)
+        {
+            SplitAtOffset(block, end);
+            map = InlineOffsetMap.Build(block);
+        }
+
+        // Step 3: Collect entries in range
         var entries = map.GetEntriesInRange(start, inclusiveEnd);
+        if (entries.Count == 0) return;
+
+        // Step 4: Collect the inlines to wrap
+        var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map);
+        if (inlinesToWrap.Count == 0) return;
+
+        // Step 5: Collect the text content from the range
+        var sb = new StringBuilder();
         foreach (var entry in entries)
         {
-            var relStart = Math.Max(0, start - entry.Start);
-            var relEnd = Math.Min(entry.Length - 1, inclusiveEnd - entry.Start);
-
             if (entry.Inline is LiteralInline lit)
-                sb.Append(lit.Content.AsSpan(relStart, relEnd - relStart + 1));
+                sb.Append(lit.Content);
             else if (entry.Inline is CodeInline code)
-                sb.Append(code.Content.AsSpan(relStart, relEnd - relStart + 1));
+                sb.Append(code.Content);
         }
 
         var codeContent = sb.ToString();
 
-        // Remove the range first, then insert CodeInline
-        RemoveTextInRange(block, start, inclusiveEnd, map, entries);
-
-        // Insert the CodeInline at the start position
+        // Step 6: Replace the collected inlines with a single CodeInline.
+        // If there's only one inline, replace it directly. Otherwise wrap and replace.
         var codeInline = new CodeInline(codeContent);
-        InsertInlineAtOffset(block, start, codeInline);
+        if (inlinesToWrap.Count == 1)
+        {
+            InlineSplitter.ReplaceInline(inlinesToWrap[0], codeInline);
+        }
+        else
+        {
+            // Multiple inlines: wrap them in a temporary container, then replace
+            // the container with the CodeInline.
+            var firstInline = inlinesToWrap[0];
+            var parentInline = firstInline.ParentInline ?? block.Inline!;
+
+            var insertBefore = firstInline.PreviousSibling;
+            var insertAsFirstChild = insertBefore is null;
+
+            foreach (var inline in inlinesToWrap)
+            {
+                inline.Remove();
+            }
+
+            if (insertAsFirstChild)
+            {
+                if (parentInline.FirstChild is not null)
+                    InlineSplitter.InsertBeforeInline(parentInline.FirstChild, codeInline);
+                else
+                    parentInline.AppendChild(codeInline);
+            }
+            else
+            {
+                InlineSplitter.InsertAfterInline(insertBefore!, codeInline);
+            }
+        }
     }
 
     /// <summary>
@@ -555,10 +558,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     /// Renders the AST back to markdown text. This is the serialization of the AST
     /// to standard markdown syntax.
     /// </summary>
-    public string ToMarkdown()
+    public string ToMarkdown(string? newLine = null)
     {
         var sb = new StringBuilder();
-        RenderBlocks(Children, sb, 0);
+        RenderBlocks(Children, sb, 0, newLine ?? Environment.NewLine);
         return sb.ToString();
     }
 
@@ -716,11 +719,22 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         var entries = map.GetEntriesInRange(start, inclusiveEnd);
         if (entries.Count == 0) return;
 
-        // Step 4: Collect the inlines to wrap — find the innermost sibling group
-        var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map);
+        // Step 4: If the range consists of a single CodeInline, add delimiters
+        // to its prefix/suffix instead of wrapping in EmphasisInline.
+        // This allows emphasis delimiters to appear inside code spans.
+        if (entries.Count == 1 && entries[0].Inline is CodeInline code)
+        {
+            var delim = new string(delimiterChar, delimiterCount);
+            code.Prefix += delim;
+            code.Suffix = delim + code.Suffix;
+            return;
+        }
+
+        // Step 5: Collect the inlines to wrap — find the innermost sibling group
+        var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map, delimiterChar);
         if (inlinesToWrap.Count == 0) return;
 
-        // Step 5: Create the emphasis container and wrap the inlines
+        // Step 6: Create the emphasis container and wrap the inlines
         WrapInlinesInContainer(block, inlinesToWrap, new EmphasisInline(delimiterChar, delimiterCount));
     }
 
@@ -787,7 +801,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
     }
 
-    private List<Inline> CollectInlinesToWrap(List<InlineOffsetMap.Entry> entries, int start, int end, InlineOffsetMap map)
+    private List<Inline> CollectInlinesToWrap(List<InlineOffsetMap.Entry> entries, int start, int end, InlineOffsetMap map, char? delimiterChar = null)
     {
         // After boundary splitting, the entries in [start, end] should correspond
         // to complete inline nodes that are direct siblings at some nesting level.
@@ -830,8 +844,14 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     }
                 }
 
-                // If the parent's full extent is within [start, end], climb up
-                if (parentStart <= parentEnd && parentStart >= start && parentEnd <= end)
+                // If the parent's full extent is within [start, end], and it uses
+                // the same delimiter character, climb up. Different delimiter chars
+                // should nest inside rather than wrapping outside.
+                // When delimiterChar is null (e.g. code/link wrapping), never climb
+                // through parent containers — we want to wrap the innermost content.
+                if (parentStart <= parentEnd && parentStart >= start && parentEnd <= end
+                    && delimiterChar is not null
+                    && parent is EmphasisInline parentEmph && parentEmph.DelimiterChar == delimiterChar)
                 {
                     inline = parent;
                 }
@@ -1174,19 +1194,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     #region Private Helpers - Rendering
 
-    private void RenderBlocks(IReadOnlyList<Block> blocks, StringBuilder sb, int indentLevel)
+    private void RenderBlocks(IReadOnlyList<Block> blocks, StringBuilder sb, int indentLevel, string newLine)
     {
         for (var i = 0; i < blocks.Count; i++)
         {
             if (i > 0 || indentLevel > 0)
-                sb.AppendLine();
+                sb.Append(newLine);
 
             var block = blocks[i];
-            RenderBlock(block, sb, indentLevel);
+            RenderBlock(block, sb, indentLevel, newLine);
         }
     }
 
-    private void RenderBlock(Block block, StringBuilder sb, int indentLevel)
+    private void RenderBlock(Block block, StringBuilder sb, int indentLevel, string newLine)
     {
         var indent = new string(' ', indentLevel * 4);
 
@@ -1205,11 +1225,11 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 break;
 
             case ListBlock list:
-                RenderList(list, sb, indentLevel);
+                RenderList(list, sb, indentLevel, newLine);
                 break;
 
             case ListItemBlock listItem:
-                RenderBlocks(listItem.Children, sb, indentLevel);
+                RenderBlocks(listItem.Children, sb, indentLevel, newLine);
                 break;
 
             case QuoteBlock quote:
@@ -1217,13 +1237,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 sb.Append("> ");
                 // Render children with quote prefix
                 var quoteSb = new StringBuilder();
-                RenderBlocks(quote.Children, quoteSb, 0);
+                RenderBlocks(quote.Children, quoteSb, 0, newLine);
                 var quoteText = quoteSb.ToString();
                 // Add "> " prefix to each line
                 var lines = quoteText.Split('\n');
                 for (var i = 0; i < lines.Length; i++)
                 {
-                    if (i > 0) sb.AppendLine();
+                    if (i > 0) sb.Append(newLine);
                     sb.Append(indent);
                     sb.Append("> ");
                     sb.Append(lines[i].TrimEnd('\r'));
@@ -1235,7 +1255,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 sb.Append(new string(fenced.FenceChar, fenced.FenceCount));
                 if (!string.IsNullOrEmpty(fenced.Info))
                     sb.Append(fenced.Info);
-                sb.AppendLine();
+                sb.Append(newLine);
                 foreach (var line in fenced.Lines)
                 {
                     sb.Append(indent);
@@ -1269,13 +1289,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
     }
 
-    private void RenderList(ListBlock list, StringBuilder sb, int indentLevel)
+    private void RenderList(ListBlock list, StringBuilder sb, int indentLevel, string newLine)
     {
         var indent = new string(' ', indentLevel * 4);
         for (var i = 0; i < list.Children.Count; i++)
         {
             if (i > 0)
-                sb.AppendLine();
+                sb.Append(newLine);
 
             var item = list.Children[i];
             sb.Append(indent);
@@ -1292,13 +1312,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     // Render remaining children as nested blocks
                     for (var j = 1; j < listItem.Children.Count; j++)
                     {
-                        sb.AppendLine();
-                        RenderBlock(listItem.Children[j], sb, indentLevel + 1);
+                        sb.Append(newLine);
+                        RenderBlock(listItem.Children[j], sb, indentLevel + 1, newLine);
                     }
                 }
                 else
                 {
-                    RenderBlocks(listItem.Children, sb, indentLevel + 1);
+                    RenderBlocks(listItem.Children, sb, indentLevel + 1, newLine);
                 }
             }
         }
@@ -1332,7 +1352,9 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             case CodeInline code:
                 var codeDelim = new string('`', code.DelimiterCount);
                 sb.Append(codeDelim);
+                sb.Append(code.Prefix);
                 sb.Append(code.Content);
+                sb.Append(code.Suffix);
                 sb.Append(codeDelim);
                 break;
             case LinkInline link:

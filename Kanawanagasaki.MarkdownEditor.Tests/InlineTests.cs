@@ -14,7 +14,7 @@ public class InlineTests
         doc.Write(text);
         doc.ApplyBold(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -31,7 +31,7 @@ public class InlineTests
         doc.Write(text);
         doc.ApplyItalic(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -48,7 +48,7 @@ public class InlineTests
         doc.Write(text);
         doc.ApplyStrikethrough(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -65,7 +65,7 @@ public class InlineTests
         doc.Write(text);
         doc.ApplyCode(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -83,7 +83,7 @@ public class InlineTests
         doc.ApplyBold(twoStart, twoEnd);
         doc.ApplyItalic(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -102,7 +102,7 @@ public class InlineTests
         doc.ApplyItalic(twoStart, twoEnd);
         doc.ApplyStrikethrough(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -122,7 +122,7 @@ public class InlineTests
         doc.ApplyStrikethrough(twoStart, twoEnd);
         doc.ApplyCode(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -142,7 +142,7 @@ public class InlineTests
         doc.ApplyItalic(twoStart, twoEnd);
         doc.ApplyBold(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
@@ -162,7 +162,7 @@ public class InlineTests
         doc.ApplyCode(twoStart, twoEnd);
         doc.ApplyItalic(twoStart, twoEnd);
 
-        var md = doc.ToMarkdown();
+        var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
     }
