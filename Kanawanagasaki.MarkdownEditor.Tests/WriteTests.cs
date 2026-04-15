@@ -146,6 +146,26 @@ public class WriteTests
         doc2.InsertParagraph(2, "Second");
 
         Assert.Equal("First\n\nSecond\n\nThird", doc2.ToMarkdown("\n"));
+        
+        var doc3 = new MarkdownDocument();
+        doc3.WriteParagraph("First");
+        doc3.WriteParagraph("Second");
+        doc3.WriteParagraph("Third");
+        doc3.WriteParagraph("Fourth");
+        doc3.WriteParagraph("Sixth");
+        doc3.InsertParagraph(7, "Fifth");
+
+        Assert.Equal("First\n\nSecond\n\nThird\n\nFourth\n\nFifth\n\nSixth", doc3.ToMarkdown("\n"));
+        
+        var doc4 = new MarkdownDocument();
+        doc4.WriteParagraph("First");
+        doc4.WriteParagraph("Second");
+        doc4.WriteParagraph("Third");
+        doc4.WriteParagraph("Fourth");
+        doc4.WriteParagraph("Sixth");
+        doc4.InsertParagraph(8, "Fifth");
+
+        Assert.Equal("First\n\nSecond\n\nThird\n\nFourth\n\nFifth\n\nSixth", doc4.ToMarkdown("\n"));
     }
 
     [Fact]
