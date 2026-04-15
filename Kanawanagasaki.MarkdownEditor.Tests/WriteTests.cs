@@ -156,7 +156,7 @@ public class WriteTests
         doc.InsertLine(1, "");
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("Hello\n", md);
+        Assert.Equal("Hello\n\n", md);
     }
 
     [Fact]
