@@ -187,6 +187,16 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             if (block.Parent is ContainerBlock container)
                 container.RemoveChild(block);
         }
+        else if (block.Inline is not null)
+        {
+            CleanupEmptyContainers(block.Inline);
+
+            if (block.Inline.FirstChild is null)
+            {
+                if (block.Parent is ContainerBlock container)
+                    container.RemoveChild(block);
+            }
+        }
     }
 
     public void RemoveText(int start, int end)
@@ -1054,6 +1064,27 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 foreach (var child in container.Children.ToList())
                     ClearBlockStyles(child);
                 break;
+        }
+    }
+
+    private void CleanupEmptyContainers(ContainerInline container)
+    {
+        var child = container.FirstChild;
+        while (child is not null)
+        {
+            var next = child.NextSibling;
+
+            if (child is ContainerInline childContainer)
+            {
+                CleanupEmptyContainers(childContainer);
+
+                if (childContainer.FirstChild is null)
+                {
+                    childContainer.Remove();
+                }
+            }
+
+            child = next;
         }
     }
 
