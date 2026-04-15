@@ -82,11 +82,11 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     /// <summary>
     /// Removes text in the given character range within the specified leaf block.
-    /// The range is [start, end] inclusive, measured in the flattened inline text of that block.
+    /// The range is [start, end) (start inclusive, end exclusive), measured in the flattened inline text of that block.
     /// </summary>
     /// <param name="block">The leaf block containing the text to remove.</param>
     /// <param name="start">Start offset (inclusive) in the block's flattened text.</param>
-    /// <param name="end">End offset (inclusive) in the block's flattened text.</param>
+    /// <param name="end">End offset (exclusive) in the block's flattened text.</param>
     public void RemoveText(LeafBlock block, int start, int end)
     {
         ArgumentNullException.ThrowIfNull(block);
@@ -96,15 +96,17 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
-        if (end >= map.TotalLength) end = map.TotalLength - 1;
-        if (start > end || map.TotalLength == 0)
+        if (end > map.TotalLength) end = map.TotalLength;
+        if (start >= end || map.TotalLength == 0)
             return;
 
-        var entries = map.GetEntriesInRange(start, end);
+        // Convert to inclusive for internal processing
+        var inclusiveEnd = end - 1;
+        var entries = map.GetEntriesInRange(start, inclusiveEnd);
         foreach (var entry in entries)
         {
             var relStart = Math.Max(0, start - entry.Start);
-            var relEnd = Math.Min(entry.Length - 1, end - entry.Start);
+            var relEnd = Math.Min(entry.Length - 1, inclusiveEnd - entry.Start);
 
             if (entry.Inline is LiteralInline lit)
             {
@@ -129,7 +131,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     /// Convenience method for single-paragraph documents.
     /// </summary>
     /// <param name="start">Start offset (inclusive) in the paragraph's flattened text.</param>
-    /// <param name="end">End offset (inclusive) in the paragraph's flattened text.</param>
+    /// <param name="end">End offset (exclusive) in the paragraph's flattened text.</param>
     public void RemoveText(int start, int end)
     {
         var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph to remove text from.");
@@ -334,7 +336,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     #region Inline Style Operations
 
     /// <summary>
-    /// Applies bold styling to the text in the given character range [start, end] (inclusive)
+    /// Applies bold styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the specified leaf block's inline content.
     /// Internally wraps the affected inlines in an EmphasisInline with DelimiterCount=2.
     /// </summary>
@@ -344,7 +346,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies bold styling to the text in the given character range [start, end] (inclusive)
+    /// Applies bold styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the document's last paragraph. Convenience method for single-paragraph documents.
     /// </summary>
     public void ApplyBold(int start, int end)
@@ -354,7 +356,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies italic styling to the text in the given character range [start, end] (inclusive)
+    /// Applies italic styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the specified leaf block's inline content.
     /// </summary>
     public void ApplyItalic(LeafBlock block, int start, int end)
@@ -363,7 +365,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies italic styling to the text in the given character range [start, end] (inclusive)
+    /// Applies italic styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the document's last paragraph.
     /// </summary>
     public void ApplyItalic(int start, int end)
@@ -373,7 +375,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies inline code styling to the text in the given character range [start, end] (inclusive)
+    /// Applies inline code styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the specified leaf block. The affected text is replaced by a CodeInline node.
     /// </summary>
     public void ApplyCode(LeafBlock block, int start, int end)
@@ -383,16 +385,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
-        if (end >= map.TotalLength) end = map.TotalLength - 1;
-        if (start > end) return;
+        if (end > map.TotalLength) end = map.TotalLength;
+        if (start >= end) return;
+
+        // Convert to inclusive for internal processing
+        var inclusiveEnd = end - 1;
 
         // Collect the text content in the range
         var sb = new StringBuilder();
-        var entries = map.GetEntriesInRange(start, end);
+        var entries = map.GetEntriesInRange(start, inclusiveEnd);
         foreach (var entry in entries)
         {
             var relStart = Math.Max(0, start - entry.Start);
-            var relEnd = Math.Min(entry.Length - 1, end - entry.Start);
+            var relEnd = Math.Min(entry.Length - 1, inclusiveEnd - entry.Start);
 
             if (entry.Inline is LiteralInline lit)
                 sb.Append(lit.Content.AsSpan(relStart, relEnd - relStart + 1));
@@ -403,7 +408,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         var codeContent = sb.ToString();
 
         // Remove the range first, then insert CodeInline
-        RemoveTextInRange(block, start, end, map, entries);
+        RemoveTextInRange(block, start, inclusiveEnd, map, entries);
 
         // Insert the CodeInline at the start position
         var codeInline = new CodeInline(codeContent);
@@ -411,7 +416,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies inline code styling to the text in the given character range [start, end] (inclusive)
+    /// Applies inline code styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the document's last paragraph.
     /// </summary>
     public void ApplyCode(int start, int end)
@@ -421,7 +426,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies strikethrough styling to the text in the given character range [start, end] (inclusive)
+    /// Applies strikethrough styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the specified leaf block's inline content.
     /// </summary>
     public void ApplyStrikethrough(LeafBlock block, int start, int end)
@@ -430,7 +435,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Applies strikethrough styling to the text in the given character range [start, end] (inclusive)
+    /// Applies strikethrough styling to the text in the given character range [start, end) (start inclusive, end exclusive)
     /// within the document's last paragraph.
     /// </summary>
     public void ApplyStrikethrough(int start, int end)
@@ -511,7 +516,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     }
 
     /// <summary>
-    /// Clears styles for a character range [start, end] (inclusive) within the
+    /// Clears styles for a character range [start, end) (start inclusive, end exclusive) within the
     /// specified leaf block's inline content. Only ContainerInline nodes that
     /// overlap with the range are unwrapped; others are left intact.
     /// </summary>
@@ -522,15 +527,18 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
-        if (end >= map.TotalLength) end = map.TotalLength - 1;
-        if (start > end) return;
+        if (end > map.TotalLength) end = map.TotalLength;
+        if (start >= end) return;
+
+        // Convert to inclusive for internal processing
+        var inclusiveEnd = end - 1;
 
         // Find all ContainerInline nodes in the tree and check if they overlap the range
-        UnwrapContainersInRange(block.Inline, start, end, map);
+        UnwrapContainersInRange(block.Inline, start, inclusiveEnd, map);
     }
 
     /// <summary>
-    /// Clears styles for a character range [start, end] (inclusive) within the
+    /// Clears styles for a character range [start, end) (start inclusive, end exclusive) within the
     /// document's last paragraph.
     /// </summary>
     public void ClearStylesForRange(int start, int end)
@@ -687,26 +695,29 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
-        if (end >= map.TotalLength) end = map.TotalLength - 1;
-        if (start > end) return;
+        if (end > map.TotalLength) end = map.TotalLength;
+        if (start >= end) return;
+
+        // Convert to inclusive for internal processing
+        var inclusiveEnd = end - 1;
 
         // Step 1: Split at the start boundary, then rebuild the map
         SplitAtOffset(block, start);
         map = InlineOffsetMap.Build(block);
 
-        // Step 2: Split at end+1 boundary (after the end character), then rebuild
-        if (end + 1 < map.TotalLength)
+        // Step 2: Split at end boundary (after the last character), then rebuild
+        if (end < map.TotalLength)
         {
-            SplitAtOffset(block, end + 1);
+            SplitAtOffset(block, end);
             map = InlineOffsetMap.Build(block);
         }
 
         // Step 3: Collect entries in range
-        var entries = map.GetEntriesInRange(start, end);
+        var entries = map.GetEntriesInRange(start, inclusiveEnd);
         if (entries.Count == 0) return;
 
         // Step 4: Collect the inlines to wrap — find the innermost sibling group
-        var inlinesToWrap = CollectInlinesToWrap(entries, start, end, map);
+        var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map);
         if (inlinesToWrap.Count == 0) return;
 
         // Step 5: Create the emphasis container and wrap the inlines
@@ -892,23 +903,26 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
-        if (end >= map.TotalLength) end = map.TotalLength - 1;
-        if (start > end) return;
+        if (end > map.TotalLength) end = map.TotalLength;
+        if (start >= end) return;
+
+        // Convert to inclusive for internal processing
+        var inclusiveEnd = end - 1;
 
         // Step 1: Split at the start boundary, then rebuild the map
         SplitAtOffset(block, start);
         map = InlineOffsetMap.Build(block);
 
-        // Step 2: Split at end+1 boundary, then rebuild
-        if (end + 1 < map.TotalLength)
+        // Step 2: Split at end boundary, then rebuild
+        if (end < map.TotalLength)
         {
-            SplitAtOffset(block, end + 1);
+            SplitAtOffset(block, end);
             map = InlineOffsetMap.Build(block);
         }
 
         // Step 3: Collect entries and inlines to wrap
-        var entries = map.GetEntriesInRange(start, end);
-        var inlinesToWrap = CollectInlinesToWrap(entries, start, end, map);
+        var entries = map.GetEntriesInRange(start, inclusiveEnd);
+        var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map);
         if (inlinesToWrap.Count == 0) return;
 
         // Step 4: Create the link/image and wrap the inlines

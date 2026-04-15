@@ -92,7 +92,7 @@ public class InlineTests
     public void BoldItalicStrikethroughTest()
     {
         var text = "One two three";
-        var expected = "One ~~***two***~~ three";
+        var expected = "One ***~~two~~*** three";
         int twoStart = text.IndexOf("two");
         int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
@@ -111,7 +111,7 @@ public class InlineTests
     public void BoldItalicStrikethroughCodeTest()
     {
         var text = "One two three";
-        var expected = "One `~~***two***~~` three";
+        var expected = "One ***~~`two`~~*** three";
         int twoStart = text.IndexOf("two");
         int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
@@ -131,7 +131,7 @@ public class InlineTests
     public void CodeStrikethroughItalicBoldTest()
     {
         var text = "One two three";
-        var expected = "One ***~~`two`~~*** three";
+        var expected = "One `~~***two***~~` three";
         int twoStart = text.IndexOf("two");
         int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
@@ -151,7 +151,7 @@ public class InlineTests
     public void StrikethroughBoldCodeItalicTest()
     {
         var text = "One two three";
-        var expected = "One *`**~~two~~**`* three";
+        var expected = "One ~~**`*two*`**~~ three";
         int twoStart = text.IndexOf("two");
         int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
