@@ -412,7 +412,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ApplyBold(int start, int end)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
+        var block = FindLeafBlockForRange(start, end) ?? throw new InvalidOperationException("Document has no paragraph.");
         ApplyBold(block, start, end);
     }
 
@@ -567,6 +567,14 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var inclusiveEnd = end - 1;
 
+        SplitAtOffset(block, start);
+        map = InlineOffsetMap.Build(block);
+        if (end < map.TotalLength)
+        {
+            SplitAtOffset(block, end);
+            map = InlineOffsetMap.Build(block);
+        }
+
         UnwrapContainersInRange(block.Inline, start, inclusiveEnd, map);
     }
 
@@ -601,6 +609,20 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         if (Children.Count > 0 && Children[^1] is ParagraphBlock para)
             return para;
         return null;
+    }
+
+    private LeafBlock? FindLeafBlockForRange(int start, int end)
+    {
+        foreach (var child in Children)
+        {
+            if (child is LeafBlock leaf && leaf.Inline is not null)
+            {
+                var map = InlineOffsetMap.Build(leaf);
+                if (start < map.TotalLength)
+                    return leaf;
+            }
+        }
+        return GetLastParagraph();
     }
 
     private static void AppendLiteralToParagraph(ParagraphBlock paragraph, string text)
@@ -1104,13 +1126,121 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     }
                     else
                     {
-                        UnwrapContainersInRange(childContainer, start, end, map);
+                        SplitContainerPartially(childContainer, start, end, map);
                     }
                 }
             }
 
             child = next;
         }
+    }
+
+    private void SplitContainerPartially(ContainerInline container, int start, int end, InlineOffsetMap map)
+    {
+        var before = new List<Inline>();
+        var during = new List<Inline>();
+        var after = new List<Inline>();
+
+        var child = container.FirstChild;
+        while (child is not null)
+        {
+            var entries = map.Entries.Where(e =>
+                ReferenceEquals(e.Inline, child) || IsDescendantOf(e.Inline, child)).ToList();
+
+            if (entries.Count == 0)
+            {
+                during.Add(child);
+            }
+            else
+            {
+                var childStart = entries.Min(e => e.Start);
+                var childEnd = entries.Max(e => e.End);
+
+                if (childEnd < start)
+                    before.Add(child);
+                else if (childStart > end)
+                    after.Add(child);
+                else
+                    during.Add(child);
+            }
+
+            child = child.NextSibling;
+        }
+
+        if (during.Count == 0)
+            return;
+
+        foreach (var c in during) c.Remove();
+        foreach (var c in after) c.Remove();
+
+        Inline? insertAfter;
+        ContainerInline? insertParent;
+
+        if (container.FirstChild is null)
+        {
+            insertAfter = container.PreviousSibling;
+            insertParent = container.ParentInline;
+            container.Remove();
+        }
+        else
+        {
+            insertAfter = container;
+            insertParent = container.ParentInline;
+        }
+
+        ContainerInline? newContainer = null;
+        if (after.Count > 0)
+        {
+            newContainer = CreateContainerLike(container);
+            foreach (var c in after)
+                newContainer.AppendChild(c);
+        }
+
+        Inline? lastInserted = null;
+        if (during.Count > 0)
+        {
+            if (insertAfter is not null)
+                InlineSplitter.InsertAfterInline(insertAfter, during[0]);
+            else if (insertParent is not null)
+            {
+                if (insertParent.FirstChild is not null)
+                    InlineSplitter.InsertBeforeInline(insertParent.FirstChild, during[0]);
+                else
+                    insertParent.AppendChild(during[0]);
+            }
+            lastInserted = during[0];
+
+            for (int i = 1; i < during.Count; i++)
+            {
+                InlineSplitter.InsertAfterInline(lastInserted!, during[i]);
+                lastInserted = during[i];
+            }
+        }
+
+        if (newContainer is not null)
+        {
+            if (lastInserted is not null)
+                InlineSplitter.InsertAfterInline(lastInserted, newContainer);
+            else if (insertAfter is not null)
+                InlineSplitter.InsertAfterInline(insertAfter, newContainer);
+            else if (insertParent is not null)
+            {
+                if (insertParent.FirstChild is not null)
+                    InlineSplitter.InsertBeforeInline(insertParent.FirstChild, newContainer);
+                else
+                    insertParent.AppendChild(newContainer);
+            }
+        }
+    }
+
+    private static ContainerInline CreateContainerLike(ContainerInline original)
+    {
+        return original switch
+        {
+            EmphasisInline emph => new EmphasisInline(emph.DelimiterChar, emph.DelimiterCount),
+            LinkInline link => new LinkInline { Url = link.Url, Title = link.Title, IsImage = link.IsImage },
+            _ => throw new InvalidOperationException($"Unknown container type: {original.GetType().Name}")
+        };
     }
 
     private void RenderBlocks(IReadOnlyList<Block> blocks, StringBuilder sb, int indentLevel, string newLine)

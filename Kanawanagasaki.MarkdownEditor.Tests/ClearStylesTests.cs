@@ -102,4 +102,17 @@ public class ClearStylesTests
 
         Assert.Equal("**One** two** three**", doc.ToMarkdown("\n"));
     }
+
+    [Fact]
+    public void ClearStylesForRange_Crossborder()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyBold(0, "One two".Length);
+        int twoStart = "One ".Length;
+        int threeEnd = twoStart + "two three".Length;
+        doc.ClearStylesForRange(twoStart, threeEnd);
+
+        Assert.Equal("**One **two three", doc.ToMarkdown("\n"));
+    }
 }
