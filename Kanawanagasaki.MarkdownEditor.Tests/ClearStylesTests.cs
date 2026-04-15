@@ -48,7 +48,7 @@ public class ClearStylesTests
         doc.ClearStylesForLine(0);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("Bold here\nPlain here", md);
+        Assert.Equal("Bold here\nPlain here\n", md);
     }
 
 

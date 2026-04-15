@@ -12,7 +12,7 @@ public class GeneralTests
         doc.ConvertToOrderedList(1);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("# Title\n1. Item", md);
+        Assert.Equal("# Title\n1. Item\n", md);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class GeneralTests
         doc.ConvertToBlockquote(0);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("> 1. First item\n1. Second item", md);
+        Assert.Equal("> 1. First item\n1. Second item\n", md);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class GeneralTests
         doc.ConvertToBlockquote(1);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("> 1. First item\n> 2. Second item", md);
+        Assert.Equal("> 1. First item\n> 2. Second item\n", md);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class GeneralTests
         doc.ConvertToOrderedList(1);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("> 1. First item\n> 2. Second item", md);
+        Assert.Equal("> 1. First item\n> 2. Second item\n", md);
     }
 
     [Fact]

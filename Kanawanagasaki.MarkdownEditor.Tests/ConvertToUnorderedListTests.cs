@@ -23,7 +23,7 @@ public class ConvertToUnorderedListTests
         doc.ConvertToUnorderedList(1);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("- Apple\n- Banana", md);
+        Assert.Equal("- Apple\n- Banana\n", md);
     }
 
     [Fact]

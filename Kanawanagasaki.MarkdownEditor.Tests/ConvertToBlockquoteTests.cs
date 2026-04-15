@@ -35,7 +35,7 @@ public class ConvertToBlockquoteTests
         doc.ConvertToBlockquote(1);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("> First quoted\n> Second quoted", md);
+        Assert.Equal("> First quoted\n> Second quoted\n", md);
     }
 
     [Fact]

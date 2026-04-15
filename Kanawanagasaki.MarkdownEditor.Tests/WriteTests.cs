@@ -60,7 +60,7 @@ public class WriteTests
 
         var md = doc.ToMarkdown("\n");
         
-        Assert.Equal("First line\nSecond line", md);
+        Assert.Equal("First line\nSecond line\n", md);
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class WriteTests
         doc.InsertLine(1, "Second");
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("First\nSecond\nThird", md);
+        Assert.Equal("First\nSecond\nThird\n", md);
     }
 
     [Fact]

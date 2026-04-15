@@ -25,7 +25,7 @@ public class ConvertToOrderedListTests
         doc.ConvertToOrderedList(2);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("1. First\n2. Second\n3. Third", md);
+        Assert.Equal("1. First\n2. Second\n3. Third\n", md);
     }
 
     [Fact]

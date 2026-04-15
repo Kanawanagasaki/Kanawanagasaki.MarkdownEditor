@@ -30,10 +30,12 @@ public class InsertHorizontalRuleTests
         var doc = new MarkdownDocument();
         doc.WriteLine("Before");
         doc.Write("After");
+
+        Assert.Equal("Before\nAfter", doc.ToMarkdown("\n"));
+
         doc.InsertHorizontalRule(1);
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Before\n\n---\n\nAfter", md);
+        Assert.Equal("Before\n\n---\n\nAfter", doc.ToMarkdown("\n"));
     }
 
     [Fact]
