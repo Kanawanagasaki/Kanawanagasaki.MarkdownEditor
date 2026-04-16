@@ -43,6 +43,11 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void WriteParagraph(string? text = null)
     {
+        if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
+        {
+            AddChild(new ParagraphBlock());
+        }
+
         if (text is not null)
             Write(text);
         _nextWriteCreatesNewParagraph = true;
@@ -138,17 +143,31 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         if (lineOffset <= 0)
         {
             InsertChild(0, paragraph);
+            if (Children.Count > 1 && !IsEmptyParagraph(Children[1]))
+            {
+                InsertChild(1, new ParagraphBlock());
+            }
         }
         else if (lineOffset >= Children.Count)
         {
-            if (Children.Count > 1)
-                InsertChild(Children.Count - 1, paragraph);
-            else
-                AddChild(paragraph);
+            if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
+            {
+                AddChild(new ParagraphBlock());
+            }
+            AddChild(paragraph);
         }
         else
         {
+            if (lineOffset > 0 && !IsEmptyParagraph(Children[lineOffset - 1]))
+            {
+                InsertChild(lineOffset, new ParagraphBlock());
+                lineOffset++;
+            }
             InsertChild(lineOffset, paragraph);
+            if (lineOffset + 1 < Children.Count && !IsEmptyParagraph(Children[lineOffset + 1]))
+            {
+                InsertChild(lineOffset + 1, new ParagraphBlock());
+            }
         }
     }
 
@@ -201,8 +220,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void RemoveText(int start, int end)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph to remove text from.");
-        RemoveText(block, start, end);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            RemoveText(block, localStart, localEnd);
     }
 
     public void ConvertToHeading(LeafBlock block, int level)
@@ -382,23 +401,57 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         if (block is QuoteBlock existingQuote)
         {
+            var parent = existingQuote.Parent as ContainerBlock;
+            if (parent is not null)
+            {
+                var quoteIndex = parent.IndexOfChild(existingQuote);
+                if (quoteIndex >= 0 && quoteIndex + 1 < parent.Children.Count)
+                {
+                    var nextSibling = parent.Children[quoteIndex + 1];
+                    parent.RemoveChildAt(quoteIndex + 1);
+
+                    var deepest = existingQuote;
+                    while (deepest.Children.Count > 0 && deepest.Children[^1] is QuoteBlock inner)
+                        deepest = inner;
+
+                    var innerQuote = new QuoteBlock { NestingLevel = 1 };
+                    AddBlockToQuote(innerQuote, nextSibling);
+                    deepest.AddChild(innerQuote);
+                    return;
+                }
+            }
+
             existingQuote.NestingLevel = nestedLevel;
             return;
         }
 
         if (block.Parent is QuoteBlock parentQuote)
         {
-            var outerQuote = parentQuote;
-            while (outerQuote.Parent is QuoteBlock grandParent)
-                outerQuote = grandParent;
-            outerQuote.NestingLevel = nestedLevel;
-            return;
+            var outerParent = parentQuote.Parent as ContainerBlock;
+            if (outerParent is not null)
+            {
+                var idx = outerParent.IndexOfChild(parentQuote);
+                if (idx >= 0)
+                {
+                    parentQuote.RemoveChild(block);
+                    outerParent.InsertChild(idx + 1, block);
+                    if (parentQuote.Children.Count == 0)
+                        outerParent.RemoveChild(parentQuote);
+                }
+            }
         }
 
-        ConvertToBlockquote(block);
-        if (block.Parent is QuoteBlock newQuote)
+        var container = block.Parent as ContainerBlock;
+        if (container is not null)
         {
-            newQuote.NestingLevel = nestedLevel;
+            var index = container.IndexOfChild(block);
+            if (index >= 0)
+            {
+                container.RemoveChildAt(index);
+                var quote = new QuoteBlock { NestingLevel = nestedLevel };
+                AddBlockToQuote(quote, block);
+                container.InsertChild(index, quote);
+            }
         }
     }
 
@@ -427,6 +480,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     public void InsertHorizontalRule()
     {
         var hr = new ThematicBreakBlock();
+        if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
+        {
+            AddChild(new ParagraphBlock());
+        }
         AddChild(hr);
         _nextWriteCreatesNewParagraph = true;
     }
@@ -435,11 +492,28 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     {
         var hr = new ThematicBreakBlock();
         if (lineIndex <= 0)
+        {
             InsertChild(0, hr);
+            if (Children.Count > 1 && !IsEmptyParagraph(Children[1]))
+                InsertChild(1, new ParagraphBlock());
+        }
         else if (lineIndex >= Children.Count)
+        {
+            if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
+                AddChild(new ParagraphBlock());
             AddChild(hr);
+        }
         else
+        {
+            if (lineIndex > 0 && !IsEmptyParagraph(Children[lineIndex - 1]))
+            {
+                InsertChild(lineIndex, new ParagraphBlock());
+                lineIndex++;
+            }
             InsertChild(lineIndex, hr);
+            if (lineIndex + 1 < Children.Count && !IsEmptyParagraph(Children[lineIndex + 1]))
+                InsertChild(lineIndex + 1, new ParagraphBlock());
+        }
     }
 
     public void ApplyBold(LeafBlock block, int start, int end)
@@ -449,8 +523,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ApplyBold(int start, int end)
     {
-        var block = FindLeafBlockForRange(start, end) ?? throw new InvalidOperationException("Document has no paragraph.");
-        ApplyBold(block, start, end);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            ApplyBold(block, localStart, localEnd);
     }
 
     public void ApplyItalic(LeafBlock block, int start, int end)
@@ -460,8 +534,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ApplyItalic(int start, int end)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
-        ApplyItalic(block, start, end);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            ApplyItalic(block, localStart, localEnd);
     }
 
     public void ApplyCode(LeafBlock block, int start, int end)
@@ -536,8 +610,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ApplyCode(int start, int end)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
-        ApplyCode(block, start, end);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            ApplyCode(block, localStart, localEnd);
     }
 
     public void ApplyStrikethrough(LeafBlock block, int start, int end)
@@ -547,8 +621,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ApplyStrikethrough(int start, int end)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
-        ApplyStrikethrough(block, start, end);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            ApplyStrikethrough(block, localStart, localEnd);
     }
 
     public void MakeImage(LeafBlock block, int start, int end, string url, string? title = null)
@@ -558,8 +632,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void MakeImage(int start, int end, string url, string? title = null)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
-        MakeImage(block, start, end, url, title);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            MakeImage(block, localStart, localEnd, url, title);
     }
 
     public void MakeLink(LeafBlock block, int start, int end, string url, string? title = null)
@@ -569,8 +643,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void MakeLink(int start, int end, string url, string? title = null)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
-        MakeLink(block, start, end, url, title);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            MakeLink(block, localStart, localEnd, url, title);
     }
 
     public void ClearAllStyles()
@@ -617,8 +691,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ClearStylesForRange(int start, int end)
     {
-        var block = GetLastParagraph() ?? throw new InvalidOperationException("Document has no paragraph.");
-        ClearStylesForRange(block, start, end);
+        foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
+            ClearStylesForRange(block, localStart, localEnd);
     }
 
     public string ToMarkdown(string? newLine = null)
@@ -636,6 +710,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             return lastPara;
 
         _nextWriteCreatesNewParagraph = false;
+
+        if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
+            AddChild(new ParagraphBlock());
+
         var paragraph = new ParagraphBlock();
         AddChild(paragraph);
         return paragraph;
@@ -648,19 +726,183 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         return null;
     }
 
-    private LeafBlock? FindLeafBlockForRange(int start, int end)
+    private record struct BlockPlainTextRange(LeafBlock Block, int PlainTextStart, int PlainTextEnd);
+
+    private List<(LeafBlock Block, int LocalStart, int LocalEnd)> ResolveGlobalRange(int globalStart, int globalEnd)
     {
-        foreach (var child in Children)
+        var result = new List<(LeafBlock Block, int LocalStart, int LocalEnd)>();
+        var ranges = BuildBlockPlainTextRanges();
+
+        foreach (var range in ranges)
         {
-            if (child is LeafBlock leaf && leaf.Inline is not null)
+            if (range.PlainTextEnd <= globalStart) continue;
+            if (range.PlainTextStart >= globalEnd) break;
+
+            int overlapStart = Math.Max(globalStart, range.PlainTextStart);
+            int overlapEnd = Math.Min(globalEnd, range.PlainTextEnd);
+
+            int localPlainTextStart = overlapStart - range.PlainTextStart;
+            int localPlainTextEnd = overlapEnd - range.PlainTextStart;
+
+            int localInlineStart = PlainTextToInlineMapOffset(range.Block, localPlainTextStart);
+            int localInlineEnd = PlainTextToInlineMapOffset(range.Block, localPlainTextEnd);
+
+            var map = InlineOffsetMap.Build(range.Block);
+            localInlineStart = Math.Max(0, Math.Min(localInlineStart, map.TotalLength));
+            localInlineEnd = Math.Max(localInlineStart, Math.Min(localInlineEnd, map.TotalLength));
+
+            if (localInlineStart < localInlineEnd)
+                result.Add((range.Block, localInlineStart, localInlineEnd));
+        }
+
+        return result;
+    }
+
+    private List<BlockPlainTextRange> BuildBlockPlainTextRanges()
+    {
+        var ranges = new List<BlockPlainTextRange>();
+        int offset = 0;
+        CollectBlockPlainTextRanges(Children, ranges, ref offset, isTopLevel: true);
+        return ranges;
+    }
+
+    private void CollectBlockPlainTextRanges(
+        IReadOnlyList<Block> blocks,
+        List<BlockPlainTextRange> ranges,
+        ref int offset,
+        bool isTopLevel)
+    {
+        Block? lastRendered = null;
+        bool hadEmptyParagraphBefore = false;
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (IsEmptyParagraph(blocks[i]))
             {
-                var map = InlineOffsetMap.Build(leaf);
-                if (start < map.TotalLength)
-                    return leaf;
+                hadEmptyParagraphBefore = true;
+                continue;
+            }
+
+            if (lastRendered is not null)
+            {
+                bool prevEndsWithLB = LastLeafEndsWithLineBreak(lastRendered);
+                if (!prevEndsWithLB)
+                {
+                    offset += hadEmptyParagraphBefore
+                        ? (isTopLevel ? 2 : 1)
+                        : 1;
+                }
+            }
+
+            lastRendered = blocks[i];
+            hadEmptyParagraphBefore = false;
+
+            switch (blocks[i])
+            {
+                case LeafBlock leaf when leaf.Inline is not null:
+                {
+                    int blockStart = offset;
+                    offset += GetBlockPlainTextLength(leaf);
+                    ranges.Add(new BlockPlainTextRange(leaf, blockStart, offset));
+                    break;
+                }
+                case ContainerBlock container:
+                    CollectBlockPlainTextRanges(container.Children, ranges, ref offset, false);
+                    break;
             }
         }
-        return GetLastParagraph();
     }
+
+    private int PlainTextToInlineMapOffset(LeafBlock block, int localPlainTextOffset)
+    {
+        int plainTextPos = 0;
+        int inlineMapPos = 0;
+        WalkForOffsetTranslation(block.Inline, localPlainTextOffset, ref plainTextPos, ref inlineMapPos);
+        return inlineMapPos;
+    }
+
+    private void WalkForOffsetTranslation(ContainerInline? container, int target, ref int ptPos, ref int imPos)
+    {
+        if (container is null) return;
+
+        var child = container.FirstChild;
+        while (child is not null)
+        {
+            int ptLen = GetInlinePlainTextLength(child);
+            if (ptLen == 0)
+            {
+                child = child.NextSibling;
+                continue;
+            }
+
+            if (ptPos + ptLen > target)
+            {
+                if (child is ContainerInline c)
+                    WalkForOffsetTranslation(c, target, ref ptPos, ref imPos);
+                else
+                    imPos += target - ptPos;
+                return;
+            }
+
+            ptPos += ptLen;
+            imPos += GetInlineInlineMapLength(child);
+            child = child.NextSibling;
+        }
+    }
+
+    private int GetBlockPlainTextLength(LeafBlock block)
+    {
+        if (block.Inline is null) return 0;
+        return GetContainerPlainTextLength(block.Inline);
+    }
+
+    private int GetContainerPlainTextLength(ContainerInline container)
+    {
+        int length = 0;
+        var child = container.FirstChild;
+        while (child is not null)
+        {
+            length += GetInlinePlainTextLength(child);
+            child = child.NextSibling;
+        }
+        return length;
+    }
+
+    private int GetInlinePlainTextLength(Inline inline) => inline switch
+    {
+        LiteralInline lit => lit.Content.Length,
+        CodeInline code => code.Content.Length,
+        LineBreakInline => 1,
+        AutolinkInline auto => auto.Url.Length,
+        HtmlInline html => html.Content.Length,
+        HtmlEntityInline entity => entity.Transcoded.Length,
+        ContainerInline c => GetContainerPlainTextLength(c),
+        _ => 0
+    };
+
+    private int GetContainerInlineMapLength(ContainerInline container)
+    {
+        int length = 0;
+        var child = container.FirstChild;
+        while (child is not null)
+        {
+            length += GetInlineInlineMapLength(child);
+            child = child.NextSibling;
+        }
+        return length;
+    }
+
+    private int GetInlineInlineMapLength(Inline inline) => inline switch
+    {
+        LiteralInline lit => lit.Content.Length,
+        CodeInline code => code.Content.Length,
+        LineBreakInline => 0,
+        AutolinkInline auto => auto.Url.Length,
+        HtmlInline html => html.Content.Length,
+        HtmlEntityInline entity => entity.Transcoded.Length,
+        ContainerInline c => GetContainerInlineMapLength(c),
+        _ => 0
+    };
 
     private static void AppendLiteralToParagraph(ParagraphBlock paragraph, string text)
     {
@@ -1301,23 +1543,51 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         };
     }
 
+    private static bool IsEmptyParagraph(Block block)
+    {
+        return block is ParagraphBlock { Inline: null or { FirstChild: null } };
+    }
+
     private void RenderBlocks(IReadOnlyList<Block> blocks, StringBuilder sb, int indentLevel, string newLine)
     {
+        Block? lastRendered = null;
+        bool hadEmptyParagraphBefore = false;
+
         for (var i = 0; i < blocks.Count; i++)
         {
-            if (i > 0)
+            if (IsEmptyParagraph(blocks[i]))
             {
-                var prev = blocks[i - 1];
-                bool prevEndsWithSoftBreak = prev is LeafBlock pl
+                hadEmptyParagraphBefore = true;
+                continue;
+            }
+
+            if (lastRendered is not null)
+            {
+                bool prevEndsWithSoftBreak = lastRendered is LeafBlock pl
                     && pl.Inline?.LastChild is LineBreakInline;
                 if (!prevEndsWithSoftBreak)
-                    sb.Append(newLine).Append(newLine);
+                {
+                    sb.Append(hadEmptyParagraphBefore
+                        ? newLine + newLine
+                        : newLine);
+                }
             }
             else if (indentLevel > 0)
+            {
                 sb.Append(newLine);
+            }
 
-            var block = blocks[i];
-            RenderBlock(block, sb, indentLevel, newLine);
+            lastRendered = blocks[i];
+            hadEmptyParagraphBefore = false;
+            RenderBlock(blocks[i], sb, indentLevel, newLine);
+        }
+
+        if (lastRendered is not null && hadEmptyParagraphBefore)
+        {
+            bool lastEndsWithSoftBreak = lastRendered is LeafBlock pl
+                && pl.Inline?.LastChild is LineBreakInline;
+            if (!lastEndsWithSoftBreak)
+                sb.Append(newLine + newLine);
         }
     }
 
