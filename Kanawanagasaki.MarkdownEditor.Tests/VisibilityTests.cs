@@ -12,7 +12,7 @@ public class VisibilityTests
         doc.ApplyStrikethrough(8, 13);
         doc.ApplyCode(14, 18);
 
-        Assert.Equal("**One** *Two* ~~Three~~ `Four`", doc.ToMarkdown());
+        Assert.Equal("**One** *Two* ~~Three~~ `Four`", doc.ToMarkdown("\n"));
         Assert.Equal("One Two Three Four", doc.GetPlainText());
 
         var chunks = doc.GetVisibleChunks();
@@ -58,7 +58,7 @@ public class VisibilityTests
         doc.WriteLine("Four");
         doc.ApplyCode(14, 18);
 
-        Assert.Equal("**One**\n*Two*\n~~Three~~\n`Four`\n", doc.ToMarkdown());
+        Assert.Equal("**One**\n*Two*\n~~Three~~\n`Four`\n", doc.ToMarkdown("\n"));
         Assert.Equal("One\nTwo\nThree\nFour\n", doc.GetPlainText());
     }
 
@@ -75,7 +75,7 @@ public class VisibilityTests
         doc.WriteLine("Four");
         doc.ConvertToOrderedList(3);
 
-        Assert.Equal("1. One\n2. Two\n3. Three\n4. Four\n", doc.ToMarkdown());
+        Assert.Equal("1. One\n2. Two\n3. Three\n4. Four\n", doc.ToMarkdown("\n"));
         Assert.Equal("One\nTwo\nThree\nFour\n", doc.GetPlainText());
     }
 
@@ -92,7 +92,7 @@ public class VisibilityTests
         doc.WriteLine("Four");
         doc.ConvertToUnorderedList(3);
 
-        Assert.Equal("- One\n- Two\n- Three\n- Four\n", doc.ToMarkdown());
+        Assert.Equal("- One\n- Two\n- Three\n- Four\n", doc.ToMarkdown("\n"));
         Assert.Equal("One\nTwo\nThree\nFour\n", doc.GetPlainText());
     }
 
@@ -109,7 +109,7 @@ public class VisibilityTests
         doc.WriteLine("Four");
         doc.ConvertToBlockquote(0, 4);
 
-        Assert.Equal("> One\n> > Two\n> > > Three\n> > > > Four\n", doc.ToMarkdown());
+        Assert.Equal("> One\n> > Two\n> > > Three\n> > > > Four\n", doc.ToMarkdown("\n"));
         Assert.Equal("One\nTwo\nThree\nFour\n", doc.GetPlainText());
     }
 }

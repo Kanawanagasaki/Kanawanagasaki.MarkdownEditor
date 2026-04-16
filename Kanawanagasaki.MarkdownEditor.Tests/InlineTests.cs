@@ -32,7 +32,7 @@ public class InlineTests
 
         doc.ApplyBold(start, end);
 
-        Assert.Equal("First line\n**Second line**\n", doc.ToMarkdown());
+        Assert.Equal("First line\n**Second line**\n", doc.ToMarkdown("\n"));
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class InlineTests
 
         doc.ApplyBold(start, end);
 
-        Assert.Equal("First line\n**Second line**\n**Third line**\nFourth line\n", doc.ToMarkdown());
+        Assert.Equal("First line\n**Second line**\n**Third line**\nFourth line\n", doc.ToMarkdown("\n"));
     }
 
     [Fact]

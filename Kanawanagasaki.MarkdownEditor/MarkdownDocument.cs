@@ -491,13 +491,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     public void InsertHorizontalRule(int lineIndex)
     {
         var hr = new ThematicBreakBlock();
+
         if (lineIndex <= 0)
         {
             InsertChild(0, hr);
             if (Children.Count > 1 && !IsEmptyParagraph(Children[1]))
                 InsertChild(1, new ParagraphBlock());
+            return;
         }
-        else if (lineIndex >= Children.Count)
+
+        int targetBlockIndex = SplitBlockAtLine(lineIndex);
+        lineIndex = targetBlockIndex;
+
+        if (lineIndex >= Children.Count)
         {
             if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
                 AddChild(new ParagraphBlock());
@@ -514,6 +520,73 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             if (lineIndex + 1 < Children.Count && !IsEmptyParagraph(Children[lineIndex + 1]))
                 InsertChild(lineIndex + 1, new ParagraphBlock());
         }
+    }
+
+    private int SplitBlockAtLine(int lineOffset)
+    {
+        int cumulativeLBs = 0;
+        for (int blockIndex = 0; blockIndex < Children.Count; blockIndex++)
+        {
+            if (Children[blockIndex] is LeafBlock leaf && leaf.Inline is not null)
+            {
+                Inline? targetLineBreak = null;
+                int localLBs = 0;
+                var child = leaf.Inline.FirstChild;
+                while (child is not null)
+                {
+                    if (child is LineBreakInline)
+                    {
+                        if (cumulativeLBs + localLBs == lineOffset - 1)
+                            targetLineBreak = child;
+                        localLBs++;
+                    }
+                    child = child.NextSibling;
+                }
+
+                if (targetLineBreak is not null)
+                {
+                    var splitInlines = new List<Inline>();
+                    var current = targetLineBreak.NextSibling;
+                    while (current is not null)
+                    {
+                        splitInlines.Add(current);
+                        current = current.NextSibling;
+                    }
+
+                    foreach (var inline in splitInlines)
+                        inline.Remove();
+
+                    targetLineBreak.Remove();
+
+                    if (splitInlines.Count > 0 || IsEmptyParagraph(leaf))
+                    {
+                        var newBlock = new ParagraphBlock();
+                        newBlock.Inline = new InlineRoot();
+                        foreach (var inline in splitInlines)
+                            newBlock.Inline.AppendChild(inline);
+
+                        if (IsEmptyParagraph(leaf))
+                        {
+                            InsertChild(blockIndex + 1, newBlock);
+                            RemoveChild(leaf);
+                        }
+                        else
+                        {
+                            InsertChild(blockIndex + 1, new ParagraphBlock());
+                            InsertChild(blockIndex + 2, newBlock);
+                        }
+
+                        return blockIndex + 2;
+                    }
+
+                    return blockIndex + 1;
+                }
+
+                cumulativeLBs += localLBs;
+            }
+        }
+
+        return Children.Count;
     }
 
     public void ApplyBold(LeafBlock block, int start, int end)
@@ -612,6 +685,51 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ApplyCode(block, localStart, localEnd);
+    }
+
+    public string DiagDumpTree()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Children count: {Children.Count}");
+        foreach (var block in Children)
+            DiagDumpBlock(block, sb, 0);
+        return sb.ToString();
+    }
+
+    private static void DiagDumpBlock(Block block, System.Text.StringBuilder sb, int indent)
+    {
+        var prefix = new string(' ', indent);
+        if (block is LeafBlock leaf)
+        {
+            sb.AppendLine($"{prefix}LeafBlock ({leaf.GetType().Name}) children={leaf.Inline?.FirstChild is not null}");
+            if (leaf.Inline is not null)
+                DiagDumpInline(leaf.Inline, sb, indent + 2);
+        }
+        else if (block is ContainerBlock container)
+        {
+            sb.AppendLine($"{prefix}ContainerBlock children={container.Children.Count}");
+            foreach (var child in container.Children)
+                DiagDumpBlock(child, sb, indent + 2);
+        }
+    }
+
+    private static void DiagDumpInline(ContainerInline? container, System.Text.StringBuilder sb, int indent)
+    {
+        if (container is null) return;
+        var prefix = new string(' ', indent);
+        var child = container.FirstChild;
+        while (child is not null)
+        {
+            string name = child.GetType().Name;
+            string extra = "";
+            if (child is LiteralInline lit) extra = $" \"{lit.Content}\"";
+            else if (child is EmphasisInline emph) extra = $" delim='{emph.DelimiterChar}' count={emph.DelimiterCount} children={emph.FirstChild is not null}";
+            else if (child is LinkInline link) extra = $" url={link.Url} image={link.IsImage} children={link.FirstChild is not null}";
+            sb.AppendLine($"{prefix}{name}{extra}");
+            if (child is ContainerInline c)
+                DiagDumpInline(c, sb, indent + 2);
+            child = child.NextSibling;
+        }
     }
 
     public void ApplyStrikethrough(LeafBlock block, int start, int end)
@@ -1116,10 +1234,43 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         if (toWrap.Count > 1)
         {
-            var groups = toWrap.GroupBy(i => i.ParentInline).ToList();
-            if (groups.Count > 1)
+            var firstParent = toWrap[0].ParentInline;
+            bool sameParent = toWrap.All(i => i.ParentInline == firstParent);
+            bool allAdjacent = sameParent && AreAllAdjacentSiblings(toWrap);
+
+            if (!sameParent || !allAdjacent)
             {
-                toWrap = groups.OrderByDescending(g => g.Count()).First().ToList();
+                var rewrapped = new List<Inline>();
+                var reseen = new HashSet<Inline>();
+
+                foreach (var entry in entries)
+                {
+                    var inline = entry.Inline;
+
+                    while (inline.ParentInline is not null and not InlineRoot)
+                    {
+                        var parent = inline.ParentInline;
+                        var parentStart = int.MaxValue;
+                        var parentEnd = int.MinValue;
+                        foreach (var pe in map.Entries)
+                        {
+                            if (pe.Inline == parent || IsDescendantOf(pe.Inline, parent))
+                            {
+                                parentStart = Math.Min(parentStart, pe.Start);
+                                parentEnd = Math.Max(parentEnd, pe.End);
+                            }
+                        }
+                        if (parentStart <= parentEnd && parentStart >= start && parentEnd <= end)
+                            inline = parent;
+                        else
+                            break;
+                    }
+
+                    if (reseen.Add(inline))
+                        rewrapped.Add(inline);
+                }
+
+                toWrap = rewrapped;
             }
         }
 
@@ -1159,6 +1310,25 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             current = current.ParentInline;
         }
         return false;
+    }
+
+    private static bool AreAllAdjacentSiblings(List<Inline> inlines)
+    {
+        if (inlines.Count <= 1) return true;
+
+        for (int i = 1; i < inlines.Count; i++)
+        {
+            var prev = inlines[i - 1];
+            var curr = inlines[i];
+
+            if (prev.ParentInline != curr.ParentInline || prev.ParentInline is null)
+                return false;
+
+            if (prev.NextSibling is not null && !ReferenceEquals(prev.NextSibling, curr))
+                return false;
+        }
+
+        return true;
     }
 
     private static bool LastLeafEndsWithSoftBreak(Block block)

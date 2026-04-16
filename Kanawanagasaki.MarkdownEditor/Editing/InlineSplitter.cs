@@ -39,7 +39,6 @@ internal static class InlineSplitter
 
     public static void ReplaceInline(Inline oldInline, Inline newInline)
     {
-        // Update previous sibling
         if (oldInline.PreviousSibling != null)
         {
             oldInline.PreviousSibling.NextSibling = newInline;
@@ -57,6 +56,7 @@ internal static class InlineSplitter
             newInline.NextSibling = oldInline.NextSibling;
         }
 
+        newInline.ParentInline = oldInline.ParentInline;
         newInline.Parent = oldInline.Parent;
 
         oldInline.PreviousSibling = null;

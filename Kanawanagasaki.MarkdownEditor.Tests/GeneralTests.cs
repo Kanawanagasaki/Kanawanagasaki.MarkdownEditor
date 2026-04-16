@@ -65,7 +65,7 @@ public class GeneralTests
     }
 
     [Fact]
-    public void BlockquoteWithListInsideNoMatterTheOrder()
+    public void ListWithBlockquoteInside()
     {
         var doc = new MarkdownDocument();
         doc.WriteLine("First item");
@@ -76,7 +76,7 @@ public class GeneralTests
         doc.ConvertToOrderedList(1);
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("> 1. First item\n> 2. Second item\n", md);
+        Assert.Equal("1. > First item\n2. > Second item\n", md);
     }
 
     [Fact]
