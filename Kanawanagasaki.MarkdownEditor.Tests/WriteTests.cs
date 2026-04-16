@@ -40,6 +40,18 @@ public class WriteTests
     }
 
     [Fact]
+    public void WriteLine_NonEmptyWriteLine()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello");
+        doc.WriteLine("!");
+        doc.Write("World");
+
+        var md = doc.ToMarkdown("\n");
+        Assert.Equal("Hello\nWorld", md);
+    }
+
+    [Fact]
     public void WriteParagraph_CreatesNewParagraph()
     {
         var doc = new MarkdownDocument();
