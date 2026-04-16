@@ -20,6 +20,40 @@ public class InlineTests
     }
 
     [Fact]
+    public void BoldTest_SecondLine()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("First line");
+        doc.WriteLine("Second line");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Second line");
+        int end = start + "Second line".Length;
+
+        doc.ApplyBold(start, end);
+
+        Assert.Equal("First line\n**Second line**\n", doc.ToMarkdown());
+    }
+
+    [Fact]
+    public void BoldTest_MultipleLines()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("First line");
+        doc.WriteLine("Second line");
+        doc.WriteLine("Third line");
+        doc.WriteLine("Fourth line");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Second line");
+        int end = plainText.IndexOf("Third line") + "Third line".Length;
+
+        doc.ApplyBold(start, end);
+
+        Assert.Equal("First line\n**Second line**\n**Third line**\nFourth line\n", doc.ToMarkdown());
+    }
+
+    [Fact]
     public void ItalicTest()
     {
         var text = "One two three";
