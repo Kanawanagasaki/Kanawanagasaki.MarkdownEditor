@@ -260,6 +260,9 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     {
         ArgumentNullException.ThrowIfNull(block);
 
+        if (block is QuoteBlock)
+            return;
+
         var parent = block.Parent as ContainerBlock;
         if (parent is null)
             throw new InvalidOperationException("Block has no parent container.");
@@ -340,20 +343,35 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         if (nestedLevel <= 0)
         {
-            if (block.Parent is QuoteBlock quote)
+            if (block is QuoteBlock quoteBlock && quoteBlock.Parent is ContainerBlock quoteParent)
             {
-                var parent = quote.Parent as ContainerBlock;
-                if (parent is not null)
+                var index = quoteParent.IndexOfChild(quoteBlock);
+                if (index >= 0)
                 {
-                    var index = parent.IndexOfChild(quote);
+                    quoteParent.RemoveChildAt(index);
+                    var insertIdx = index;
+                    foreach (var child in quoteBlock.Children.ToList())
+                    {
+                        quoteBlock.RemoveChild(child);
+                        quoteParent.InsertChild(insertIdx, child);
+                        insertIdx++;
+                    }
+                }
+            }
+            else if (block.Parent is QuoteBlock innerQuote)
+            {
+                var outerParent = innerQuote.Parent as ContainerBlock;
+                if (outerParent is not null)
+                {
+                    var index = outerParent.IndexOfChild(innerQuote);
                     if (index >= 0)
                     {
-                        parent.RemoveChildAt(index);
+                        outerParent.RemoveChildAt(index);
                         var insertIdx = index;
-                        foreach (var child in quote.Children.ToList())
+                        foreach (var child in innerQuote.Children.ToList())
                         {
-                            quote.RemoveChild(child);
-                            parent.InsertChild(insertIdx, child);
+                            innerQuote.RemoveChild(child);
+                            outerParent.InsertChild(insertIdx, child);
                             insertIdx++;
                         }
                     }
@@ -362,9 +380,18 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             return;
         }
 
-        if (block.Parent is QuoteBlock existingQuote)
+        if (block is QuoteBlock existingQuote)
         {
             existingQuote.NestingLevel = nestedLevel;
+            return;
+        }
+
+        if (block.Parent is QuoteBlock parentQuote)
+        {
+            var outerQuote = parentQuote;
+            while (outerQuote.Parent is QuoteBlock grandParent)
+                outerQuote = grandParent;
+            outerQuote.NestingLevel = nestedLevel;
             return;
         }
 
@@ -1324,8 +1351,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 var quoteSb = new StringBuilder();
                 RenderBlocks(quote.Children, quoteSb, 0, newLine);
                 var quoteText = quoteSb.ToString();
-                var prefix = new string('>', quote.NestingLevel);
-                if (quote.NestingLevel > 0) prefix += " ";
+                var prefix = string.Join(" ", Enumerable.Repeat(">", quote.NestingLevel)) + " ";
                 var lines = quoteText.Split('\n');
 
                 bool quoteEndsWithLB = quote.Children.Count > 0
