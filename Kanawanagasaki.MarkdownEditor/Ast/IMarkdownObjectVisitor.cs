@@ -17,7 +17,7 @@ public interface IMarkdownObjectVisitor
     void Visit(CodeInline inline);
     void Visit(LinkInline inline);
     void Visit(AutolinkInline inline);
-    void Visit(LineBreakInline inline);
+    void Visit(LineInline inline);
     void Visit(HtmlInline inline);
     void Visit(HtmlEntityInline inline);
     void Visit(InlineRoot root);

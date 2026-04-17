@@ -12,33 +12,41 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             return;
 
         var paragraph = GetOrCreateLastParagraph();
-        AppendLiteralToParagraph(paragraph, text);
+        var line = paragraph.GetOrCreateLine();
+
+        bool wasEmpty = line.IsEmpty;
+        line.AppendLiteral(text);
+
+        if (wasEmpty && paragraph.HasTrailingLineBreak)
+        {
+            paragraph.HasTrailingLineBreak = false;
+        }
+
+        paragraph.MarkInlineDirty();
     }
 
     public void WriteLine(string? text = null)
     {
-        if (!string.IsNullOrEmpty(text))
-        {
-            if (Children.Count > 0 && Children[^1] is LeafBlock lastLeaf
-                && lastLeaf.Inline is not null
-                && lastLeaf.Inline.LastChild is not LineBreakInline)
-            {
-                lastLeaf.Inline.AppendChild(new LineBreakInline());
-            }
-
-            var paragraph = new ParagraphBlock();
-            paragraph.Inline = new InlineRoot();
-            paragraph.Inline.AppendChild(new LiteralInline(text));
-            paragraph.Inline.AppendChild(new LineBreakInline());
-            AddChild(paragraph);
-            _nextWriteCreatesNewParagraph = false;
-        }
+        ParagraphBlock targetPara;
+        if (Children.Count > 0 && Children[^1] is ParagraphBlock p)
+            targetPara = p;
         else
         {
-            var paragraph = GetOrCreateLastParagraph();
-            paragraph.Inline ??= new InlineRoot();
-            paragraph.Inline.AppendChild(new LineBreakInline());
+            targetPara = new ParagraphBlock();
+            AddChild(targetPara);
         }
+
+        var lastLine = targetPara.GetOrCreateLine();
+
+        if (!string.IsNullOrEmpty(text) && lastLine.IsEmpty)
+        {
+            lastLine.AppendLiteral(text);
+        }
+
+        targetPara.Lines.Add(new LineInline());
+        targetPara.HasTrailingLineBreak = true;
+        targetPara.MarkInlineDirty();
+        _nextWriteCreatesNewParagraph = false;
     }
 
     public void WriteParagraph(string? text = null)
@@ -68,49 +76,56 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 InsertChild(0, paragraph);
             }
 
-            paragraph.Inline ??= new InlineRoot();
-            paragraph.Inline.PrependChild(new LineBreakInline());
+            // Sync from merged inline tree if needed
+            paragraph.SyncFromMergedIfNeeded();
+
+            var newLine = new LineInline();
             if (!string.IsNullOrEmpty(text))
-                paragraph.Inline.PrependChild(new LiteralInline(text));
+                newLine.AppendLiteral(text);
+            paragraph.Lines.Insert(0, newLine);
+            // Don't set HasTrailingLineBreak - inserting before content, not adding trailing break
+            paragraph.MarkInlineDirty();
             return;
         }
 
-        int cumulativeLBs = 0;
+        int cumulative = 0;
         for (int blockIndex = 0; blockIndex < Children.Count; blockIndex++)
         {
-            if (Children[blockIndex] is LeafBlock leaf && leaf.Inline is not null)
-            {
-                Inline? targetLineBreak = null;
-                int localLBs = 0;
-                var child = leaf.Inline.FirstChild;
-                while (child is not null)
-                {
-                    if (child is LineBreakInline)
-                    {
-                        if (cumulativeLBs + localLBs == lineOffset - 1)
-                            targetLineBreak = child;
-                        localLBs++;
-                    }
-                    child = child.NextSibling;
-                }
+            var block = Children[blockIndex];
+            int linesInBlock = CountLinesInBlock(block);
 
-                if (targetLineBreak is not null)
+            if (lineOffset < cumulative + linesInBlock)
+            {
+                if (block is ParagraphBlock para)
                 {
-                    Inline lastInserted = targetLineBreak;
-                    if (!string.IsNullOrEmpty(text))
+                    para.SyncFromMergedIfNeeded();
+                    int localLineIndex = lineOffset - cumulative;
+
+                    // Remove trailing empty line if it exists and we're inserting before the end
+                    if (para.HasTrailingLineBreak && localLineIndex >= para.Lines.Count - 1 && para.Lines.Count > 0 && para.Lines[^1].IsEmpty)
                     {
-                        var lit = new LiteralInline(text);
-                        InlineSplitter.InsertAfterInline(lastInserted, lit);
-                        lastInserted = lit;
+                        // Insert before the trailing empty line
+                        var newLine = new LineInline();
+                        if (!string.IsNullOrEmpty(text))
+                            newLine.AppendLiteral(text);
+                        para.Lines.Insert(localLineIndex, newLine);
+                        para.MarkInlineDirty();
+                        return;
                     }
-                    InlineSplitter.InsertAfterInline(lastInserted, new LineBreakInline());
+
+                    var insertLine = new LineInline();
+                    if (!string.IsNullOrEmpty(text))
+                        insertLine.AppendLiteral(text);
+                    para.Lines.Insert(localLineIndex, insertLine);
+                    para.MarkInlineDirty();
                     return;
                 }
-
-                cumulativeLBs += localLBs;
             }
+
+            cumulative += linesInBlock;
         }
 
+        // Insert at end
         ParagraphBlock lastParagraph;
         if (Children.Count > 0 && Children[^1] is ParagraphBlock lp)
         {
@@ -122,13 +137,16 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             AddChild(lastParagraph);
         }
 
-        lastParagraph.Inline ??= new InlineRoot();
-        lastParagraph.Inline.AppendChild(new LineBreakInline());
+        lastParagraph.SyncFromMergedIfNeeded();
+        var endLine = new LineInline();
         if (!string.IsNullOrEmpty(text))
-        {
-            lastParagraph.Inline.AppendChild(new LiteralInline(text));
-        }
-        lastParagraph.Inline.AppendChild(new LineBreakInline());
+            endLine.AppendLiteral(text);
+        lastParagraph.Lines.Add(endLine);
+        lastParagraph.HasTrailingLineBreak = true;
+        lastParagraph.MarkInlineDirty();
+
+        // If inserting at end, add a trailing empty line
+        lastParagraph.Lines.Add(new LineInline());
     }
 
     public void InsertParagraph(int lineOffset, string text)
@@ -270,10 +288,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ConvertToHeading(int lineIndex, int level)
     {
-        var block = GetBlockAtLine(lineIndex);
-        if (block is LeafBlock leaf)
+        var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
+        if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
+        {
+            var extracted = ExtractLineFromParagraph(para, localLineIndex);
+            ConvertToHeading(extracted, level);
+        }
+        else if (block is LeafBlock leaf)
+        {
             ConvertToHeading(leaf, level);
+        }
     }
+
+
 
     public void ConvertToBlockquote(Block block)
     {
@@ -352,8 +379,108 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ConvertToBlockquote(int lineIndex)
     {
-        var block = GetBlockAtLine(lineIndex);
-        ConvertToBlockquote(block);
+        var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
+        if (block is QuoteBlock)
+        {
+            return;
+        }
+        else if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
+        {
+            var extracted = ExtractLineFromParagraph(para, localLineIndex);
+            WrapInStandaloneBlockquote(extracted);
+        }
+        else if (block is ListBlock listBlock && localLineIndex < listBlock.Children.Count)
+        {
+            ExtractListItemForBlockquote(listBlock, localLineIndex);
+        }
+        else
+        {
+            WrapInStandaloneBlockquote(block);
+        }
+    }
+
+    private void WrapInStandaloneBlockquote(Block block)
+    {
+        var parent = block.Parent as ContainerBlock;
+        if (parent is null) return;
+        var index = parent.IndexOfChild(block);
+        if (index < 0) return;
+
+        var quote = new QuoteBlock { NestingLevel = 1 };
+        parent.RemoveChildAt(index);
+        AddBlockToQuote(quote, block);
+        parent.InsertChild(index, quote);
+    }
+
+    private void ExtractListItemForBlockquote(ListBlock listBlock, int itemIndex)
+    {
+        var parent = listBlock.Parent as ContainerBlock;
+        if (parent is null) return;
+        var listIndex = parent.IndexOfChild(listBlock);
+        if (listIndex < 0) return;
+
+        var extractedItem = listBlock.Children[itemIndex];
+        listBlock.RemoveChildAt(itemIndex);
+
+        // Create list for extracted item
+        var extractedList = new ListBlock(listBlock.ListType);
+        extractedList.StartNumber = listBlock.StartNumber;
+        extractedList.AddChild(extractedItem);
+
+        // Collect remaining items after the extracted one into a tail list
+        ListBlock? tailList = null;
+        while (itemIndex < listBlock.Children.Count)
+        {
+            var child = listBlock.Children[itemIndex];
+            listBlock.RemoveChildAt(itemIndex);
+            if (tailList is null)
+            {
+                tailList = new ListBlock(listBlock.ListType);
+                tailList.StartNumber = listBlock.StartNumber;
+            }
+            tailList.AddChild(child);
+        }
+
+        // Remove original list if empty
+        if (listBlock.Children.Count == 0)
+        {
+            parent.RemoveChildAt(listIndex);
+        }
+
+        // Create blockquote containing the extracted list
+        var quote = new QuoteBlock { NestingLevel = 1 };
+        AddBlockToQuote(quote, extractedList);
+
+        // Check if we should merge with an adjacent QuoteBlock containing a compatible ListBlock
+        bool merged = false;
+        if (listIndex > 0 && parent.Children[listIndex - 1] is QuoteBlock prevQuote
+            && prevQuote.Children.Count > 0 && prevQuote.Children[0] is ListBlock prevList
+            && prevList.ListType == listBlock.ListType)
+        {
+            // Merge extracted items into previous quote's list
+            prevQuote.RemoveChild(prevList);
+            foreach (var item in extractedList.Children.ToList())
+            {
+                extractedList.RemoveChild(item);
+                prevList.AddChild(item);
+            }
+            prevQuote.AddChild(prevList);
+            merged = true;
+        }
+
+        if (!merged)
+        {
+            parent.InsertChild(listIndex, quote);
+        }
+
+        // Insert tail list
+        if (tailList is not null)
+        {
+            var insertPos = merged
+                ? parent.IndexOfChild(parent.Children.OfType<QuoteBlock>().Last()) + 1
+                : parent.IndexOfChild(quote) + 1;
+            parent.InsertChild(insertPos, tailList);
+        }
     }
 
     public void ConvertToBlockquote(int lineIndex, int nestedLevel)
@@ -462,8 +589,16 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ConvertToOrderedList(int lineIndex)
     {
-        var block = GetBlockAtLine(lineIndex);
-        ConvertToOrderedList(block);
+        var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
+        if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
+        {
+            var extracted = ExtractLineFromParagraph(para, localLineIndex);
+            ConvertToOrderedList(extracted);
+        }
+        else
+        {
+            ConvertToOrderedList(block);
+        }
     }
 
     public void ConvertToUnorderedList(Block block)
@@ -473,8 +608,16 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public void ConvertToUnorderedList(int lineIndex)
     {
-        var block = GetBlockAtLine(lineIndex);
-        ConvertToUnorderedList(block);
+        var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
+        if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
+        {
+            var extracted = ExtractLineFromParagraph(para, localLineIndex);
+            ConvertToUnorderedList(extracted);
+        }
+        else
+        {
+            ConvertToUnorderedList(block);
+        }
     }
 
     public void InsertHorizontalRule()
@@ -524,66 +667,60 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     private int SplitBlockAtLine(int lineOffset)
     {
-        int cumulativeLBs = 0;
+        int cumulative = 0;
         for (int blockIndex = 0; blockIndex < Children.Count; blockIndex++)
         {
-            if (Children[blockIndex] is LeafBlock leaf && leaf.Inline is not null)
+            var block = Children[blockIndex];
+            int linesInBlock = CountLinesInBlock(block);
+
+            if (lineOffset < cumulative + linesInBlock)
             {
-                Inline? targetLineBreak = null;
-                int localLBs = 0;
-                var child = leaf.Inline.FirstChild;
-                while (child is not null)
+                if (block is ParagraphBlock para)
                 {
-                    if (child is LineBreakInline)
-                    {
-                        if (cumulativeLBs + localLBs == lineOffset - 1)
-                            targetLineBreak = child;
-                        localLBs++;
-                    }
-                    child = child.NextSibling;
-                }
+                    int localLineIndex = lineOffset - cumulative;
 
-                if (targetLineBreak is not null)
-                {
-                    var splitInlines = new List<Inline>();
-                    var current = targetLineBreak.NextSibling;
-                    while (current is not null)
+                    if (localLineIndex <= 0)
+                        return blockIndex;
+
+                    para.SyncFromMergedIfNeeded();
+
+                    // Extract lines [localLineIndex..] into new paragraph
+                    var newPara = new ParagraphBlock();
+                    while (para.Lines.Count > localLineIndex)
                     {
-                        splitInlines.Add(current);
-                        current = current.NextSibling;
+                        var line = para.Lines[localLineIndex];
+                        para.Lines.RemoveAt(localLineIndex);
+                        newPara.Lines.Add(line);
                     }
 
-                    foreach (var inline in splitInlines)
-                        inline.Remove();
-
-                    targetLineBreak.Remove();
-
-                    if (splitInlines.Count > 0 || IsEmptyParagraph(leaf))
+                    if (para.HasTrailingLineBreak)
                     {
-                        var newBlock = new ParagraphBlock();
-                        newBlock.Inline = new InlineRoot();
-                        foreach (var inline in splitInlines)
-                            newBlock.Inline.AppendChild(inline);
+                        newPara.HasTrailingLineBreak = true;
+                        if (!para.Lines.Any(l => !l.IsEmpty))
+                            para.HasTrailingLineBreak = false;
+                    }
 
-                        if (IsEmptyParagraph(leaf))
-                        {
-                            InsertChild(blockIndex + 1, newBlock);
-                            RemoveChild(leaf);
-                        }
-                        else
-                        {
-                            InsertChild(blockIndex + 1, new ParagraphBlock());
-                            InsertChild(blockIndex + 2, newBlock);
-                        }
+                    para.MarkInlineDirty();
+                    newPara.MarkInlineDirty();
 
+                    bool paraNowEmpty = IsEmptyParagraph(para);
+                    if (paraNowEmpty)
+                    {
+                        InsertChild(blockIndex + 1, newPara);
+                        RemoveChild(para);
+                        return blockIndex + 1;
+                    }
+                    else
+                    {
+                        InsertChild(blockIndex + 1, new ParagraphBlock());
+                        InsertChild(blockIndex + 2, newPara);
                         return blockIndex + 2;
                     }
-
-                    return blockIndex + 1;
                 }
-
-                cumulativeLBs += localLBs;
+                return blockIndex + 1;
             }
+
+            cumulative += linesInBlock;
         }
 
         return Children.Count;
@@ -986,17 +1123,27 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         return length;
     }
 
-    private int GetInlinePlainTextLength(Inline inline) => inline switch
+    private int GetInlinePlainTextLength(Inline inline)
     {
-        LiteralInline lit => lit.Content.Length,
-        CodeInline code => code.Content.Length,
-        LineBreakInline => 1,
-        AutolinkInline auto => auto.Url.Length,
-        HtmlInline html => html.Content.Length,
-        HtmlEntityInline entity => entity.Transcoded.Length,
-        ContainerInline c => GetContainerPlainTextLength(c),
-        _ => 0
-    };
+        if (inline is LineInline line)
+        {
+            int len = GetContainerPlainTextLength(line);
+            if (line.NextSibling is LineInline nextLine
+                && !(nextLine.IsEmpty && nextLine.NextSibling is null))
+                len += 1; // implicit newline between adjacent LineInline siblings
+            return len;
+        }
+        return inline switch
+        {
+            LiteralInline lit => lit.Content.Length,
+            CodeInline code => code.Content.Length,
+            AutolinkInline auto => auto.Url.Length,
+            HtmlInline html => html.Content.Length,
+            HtmlEntityInline entity => entity.Transcoded.Length,
+            ContainerInline c => GetContainerPlainTextLength(c),
+            _ => 0
+        };
+    }
 
     private int GetContainerInlineMapLength(ContainerInline container)
     {
@@ -1014,7 +1161,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     {
         LiteralInline lit => lit.Content.Length,
         CodeInline code => code.Content.Length,
-        LineBreakInline => 0,
         AutolinkInline auto => auto.Url.Length,
         HtmlInline html => html.Content.Length,
         HtmlEntityInline entity => entity.Transcoded.Length,
@@ -1022,26 +1168,111 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         _ => 0
     };
 
-    private static void AppendLiteralToParagraph(ParagraphBlock paragraph, string text)
+    private (Block Block, int LineIndex) GetBlockAndLineAt(int lineIndex)
     {
-        paragraph.Inline ??= new InlineRoot();
-
-        var lastChild = paragraph.Inline.LastChild;
-        if (lastChild is LiteralInline lastLit)
+        if (lineIndex < 0) lineIndex = 0;
+        int cumulative = 0;
+        for (int i = 0; i < Children.Count; i++)
         {
-            lastLit.Content += text;
+            var block = Children[i];
+            int linesInBlock = CountLinesInBlock(block);
+            if (lineIndex < cumulative + linesInBlock)
+            {
+                return (block, lineIndex - cumulative);
+            }
+            cumulative += linesInBlock;
         }
-        else
-        {
-            paragraph.Inline.AppendChild(new LiteralInline(text));
-        }
+        var lastBlock = Children[Children.Count - 1];
+        return (lastBlock, CountLinesInBlock(lastBlock) - 1);
     }
 
     private Block GetBlockAtLine(int lineIndex)
     {
-        if (lineIndex < 0) lineIndex = 0;
-        var blockIndex = Math.Min(lineIndex, Children.Count - 1);
-        return Children[blockIndex];
+        var (block, _) = GetBlockAndLineAt(lineIndex);
+        return block;
+    }
+
+    private static int CountLinesInBlock(Block block)
+    {
+        if (block is ParagraphBlock para)
+        {
+            if (para.Lines.Count == 0) return 1;
+            if (para.HasTrailingLineBreak && para.Lines.Count > 1 && para.Lines[^1].IsEmpty)
+                return para.Lines.Count - 1;
+            return para.Lines.Count;
+        }
+        return 1;
+    }
+
+    private ParagraphBlock ExtractLineFromParagraph(ParagraphBlock para, int lineIndex)
+    {
+        para.SyncFromMergedIfNeeded();
+
+        if (lineIndex < 0 || lineIndex >= para.Lines.Count)
+            lineIndex = Math.Clamp(lineIndex, 0, para.Lines.Count - 1);
+
+        var newPara = new ParagraphBlock();
+        var targetLine = para.Lines[lineIndex];
+        
+        // Move inlines from target line to new paragraph
+        var child = targetLine.FirstChild;
+        while (child is not null)
+        {
+            var next = child.NextSibling;
+            newPara.GetOrCreateLine().AppendChild(child);
+            child = next;
+        }
+
+        // Check if the extracted line was followed by an empty line (trailing break)
+        bool wasFollowedByTrailingBreak = para.HasTrailingLineBreak 
+            && lineIndex == para.Lines.Count; // We already removed the line, so this checks if it was the last one
+
+        // Remove the extracted line
+        para.Lines.RemoveAt(lineIndex);
+
+        // If the paragraph becomes empty, remove it
+        if (para.Lines.Count == 0 || (para.Lines.Count == 1 && para.Lines[0].IsEmpty && !para.HasTrailingLineBreak))
+        {
+            para.HasTrailingLineBreak = false;
+        }
+        // If the paragraph now ends with an empty trailing line, remove the sentinel
+        // but preserve HasTrailingLineBreak if content lines remain
+        else if (para.HasTrailingLineBreak && para.Lines.Count > 0 && para.Lines[^1].IsEmpty)
+        {
+            para.Lines.RemoveAt(para.Lines.Count - 1);
+            // Keep HasTrailingLineBreak = true since content lines still exist;
+            // only clear it if the paragraph is truly empty (handled above)
+        }
+
+        // If the extracted line was followed by a trailing break, pass it to the new paragraph
+        if (wasFollowedByTrailingBreak)
+        {
+            newPara.HasTrailingLineBreak = true;
+        }
+
+        para.MarkInlineDirty();
+        newPara.MarkInlineDirty();
+
+        var parent = para.Parent as ContainerBlock;
+        if (parent is not null)
+        {
+            var idx = parent.IndexOfChild(para);
+            if (idx >= 0)
+            {
+                bool paraIsEmpty = IsEmptyParagraph(para);
+                if (paraIsEmpty)
+                {
+                    parent.ReplaceChild(para, newPara);
+                }
+                else
+                {
+                    // Insert extracted BEFORE remaining content to preserve line indices
+                    parent.InsertChild(idx, newPara);
+                }
+            }
+        }
+
+        return newPara;
     }
 
     private void ReplaceBlockInParent(Block oldBlock, Block newBlock)
@@ -1071,6 +1302,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             var listItem = new ListItemBlock();
             if (block is LeafBlock leaf)
                 listItem.AddChild(leaf);
+            else if (block is QuoteBlock || block is ListBlock)
+                listItem.AddChild(block);
             else if (block is ContainerBlock containerBlock)
             {
                 foreach (var child in containerBlock.Children.ToList())
@@ -1090,6 +1323,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         if (block is LeafBlock leafBlock)
             listItemBlock.AddChild(leafBlock);
+        else if (block is QuoteBlock || block is ListBlock)
+            listItemBlock.AddChild(block);
         else if (block is ContainerBlock containerBlock)
         {
             foreach (var child in containerBlock.Children.ToList())
@@ -1138,7 +1373,43 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map, delimiterChar);
         if (inlinesToWrap.Count == 0) return;
 
-        WrapInlinesInContainer(block, inlinesToWrap, new EmphasisInline(delimiterChar, delimiterCount));
+        // Group non-adjacent inlines (e.g., separated by LineInline boundaries) and wrap each group separately
+        var groups = GroupContiguousSiblings(inlinesToWrap);
+        foreach (var group in groups)
+        {
+            WrapInlinesInContainer(block, group, new EmphasisInline(delimiterChar, delimiterCount));
+        }
+    }
+
+    private static List<List<Inline>> GroupContiguousSiblings(List<Inline> inlines)
+    {
+        var groups = new List<List<Inline>>();
+        if (inlines.Count == 0) return groups;
+
+        var currentGroup = new List<Inline> { inlines[0] };
+        groups.Add(currentGroup);
+
+        for (int i = 1; i < inlines.Count; i++)
+        {
+            var prev = inlines[i - 1];
+            var curr = inlines[i];
+
+            bool adjacent = prev.ParentInline == curr.ParentInline
+                && prev.NextSibling is not null
+                && ReferenceEquals(prev.NextSibling, curr);
+
+            if (adjacent)
+            {
+                currentGroup.Add(curr);
+            }
+            else
+            {
+                currentGroup = new List<Inline> { curr };
+                groups.Add(currentGroup);
+            }
+        }
+
+        return groups;
     }
 
     private void SplitAtOffset(LeafBlock block, int offset)
@@ -1201,7 +1472,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         {
             var inline = entry.Inline;
 
-            while (inline.ParentInline is not null and not InlineRoot)
+            while (inline.ParentInline is not null and not InlineRoot and not LineInline)
             {
                 var parent = inline.ParentInline;
 
@@ -1247,7 +1518,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 {
                     var inline = entry.Inline;
 
-                    while (inline.ParentInline is not null and not InlineRoot)
+                    while (inline.ParentInline is not null and not InlineRoot and not LineInline)
                     {
                         var parent = inline.ParentInline;
                         var parentStart = int.MaxValue;
@@ -1333,8 +1604,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     private static bool LastLeafEndsWithSoftBreak(Block block)
     {
+        if (block is ParagraphBlock para)
+            return para.HasTrailingLineBreak;
         if (block is LeafBlock leaf)
-            return leaf.Inline?.LastChild is LineBreakInline;
+            return leaf.Inline?.LastChild is LineInline;
         if (block is ContainerBlock container && container.Children.Count > 0)
             return LastLeafEndsWithSoftBreak(container.Children[^1]);
         return false;
@@ -1517,10 +1790,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             {
                 CleanupEmptyContainers(childContainer);
 
-                if (childContainer.FirstChild is null)
-                {
+                if (childContainer.FirstChild is null && child is not LineInline)
                     childContainer.Remove();
-                }
             }
 
             child = next;
@@ -1538,19 +1809,22 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             {
                 UnwrapAllContainers(childContainer);
 
-                var grandChild = childContainer.FirstChild;
-                var lastInserted = child;
-
-                while (grandChild is not null)
+                if (child is not LineInline)
                 {
-                    var nextGrand = grandChild.NextSibling;
-                    grandChild.Remove();
-                    InlineSplitter.InsertAfterInline(lastInserted, grandChild);
-                    lastInserted = grandChild;
-                    grandChild = nextGrand;
-                }
+                    var grandChild = childContainer.FirstChild;
+                    var lastInserted = child;
 
-                child.Remove();
+                    while (grandChild is not null)
+                    {
+                        var nextGrand = grandChild.NextSibling;
+                        grandChild.Remove();
+                        InlineSplitter.InsertAfterInline(lastInserted, grandChild);
+                        lastInserted = grandChild;
+                        grandChild = nextGrand;
+                    }
+
+                    child.Remove();
+                }
             }
 
             child = next;
@@ -1564,7 +1838,12 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         {
             var next = child.NextSibling;
 
-            if (child is ContainerInline childContainer)
+            if (child is LineInline)
+            {
+                // Recurse into LineInline to find containers inside, but don't unwrap LineInline itself
+                UnwrapContainersInRange((ContainerInline)child, start, end, map);
+            }
+            else if (child is ContainerInline childContainer)
             {
                 var containerEntries = map.Entries.Where(e =>
                     e.Inline == childContainer || IsDescendantOf(e.Inline, childContainer)).ToList();
@@ -1713,9 +1992,14 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         };
     }
 
-    private static bool IsEmptyParagraph(Block block)
+    private bool IsEmptyParagraph(Block block)
     {
-        return block is ParagraphBlock { Inline: null or { FirstChild: null } };
+        if (block is not ParagraphBlock para) return false;
+        if (para.Lines.Count > 0 && para.Lines.Any(l => !l.IsEmpty))
+            return false;
+        if (para.HasTrailingLineBreak)
+            return false;
+        return para.Inline?.FirstChild is null;
     }
 
     private void RenderBlocks(IReadOnlyList<Block> blocks, StringBuilder sb, int indentLevel, string newLine)
@@ -1733,8 +2017,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
             if (lastRendered is not null)
             {
-                bool prevEndsWithSoftBreak = lastRendered is LeafBlock pl
-                    && pl.Inline?.LastChild is LineBreakInline;
+                bool prevEndsWithSoftBreak = lastRendered is ParagraphBlock pp
+                    && pp.HasTrailingLineBreak;
                 if (!prevEndsWithSoftBreak)
                 {
                     sb.Append(hadEmptyParagraphBefore
@@ -1754,8 +2038,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         if (lastRendered is not null && hadEmptyParagraphBefore)
         {
-            bool lastEndsWithSoftBreak = lastRendered is LeafBlock pl
-                && pl.Inline?.LastChild is LineBreakInline;
+            bool lastEndsWithSoftBreak = lastRendered is ParagraphBlock pp
+                && pp.HasTrailingLineBreak;
             if (!lastEndsWithSoftBreak)
                 sb.Append(newLine + newLine);
         }
@@ -1770,6 +2054,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             case ParagraphBlock para:
                 sb.Append(indent);
                 RenderInlines(para.Inline, sb);
+                if (para.HasTrailingLineBreak)
+                    sb.Append('\n');
                 break;
 
             case HeadingBlock heading:
@@ -1863,7 +2149,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 var prevItem = list.Children[i - 1] as ListItemBlock;
                 bool prevEndsWithLB = false;
                 if (prevItem?.Children.Count > 0 && prevItem.Children[0] is ParagraphBlock prevPara)
-                    prevEndsWithLB = prevPara.Inline?.LastChild is LineBreakInline;
+                    prevEndsWithLB = prevPara.HasTrailingLineBreak;
                 if (!prevEndsWithLB)
                     sb.Append(newLine);
             }
@@ -1880,11 +2166,18 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 if (listItem.Children[0] is ParagraphBlock para)
                 {
                     RenderInlines(para.Inline, sb);
+                    if (para.HasTrailingLineBreak)
+                        sb.Append('\n');
                     for (var j = 1; j < listItem.Children.Count; j++)
                     {
                         sb.Append(newLine);
                         RenderBlock(listItem.Children[j], sb, indentLevel + 1, newLine);
                     }
+                }
+                else if (listItem.Children[0] is QuoteBlock)
+                {
+                    // Blockquotes replace list indentation with their own prefix
+                    RenderBlocks(listItem.Children, sb, indentLevel, newLine);
                 }
                 else
                 {
@@ -1943,8 +2236,11 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 sb.Append(auto.Url);
                 sb.Append('>');
                 break;
-            case LineBreakInline lineBreak:
-                sb.Append(lineBreak.IsHard ? "  \n" : "\n");
+            case LineInline lineInline:
+                RenderInlines(lineInline, sb);
+                if (lineInline.NextSibling is LineInline nextLine
+                    && !(nextLine.IsEmpty && nextLine.NextSibling is null))
+                    sb.Append('\n');
                 break;
             case HtmlInline html:
                 sb.Append(html.Content);

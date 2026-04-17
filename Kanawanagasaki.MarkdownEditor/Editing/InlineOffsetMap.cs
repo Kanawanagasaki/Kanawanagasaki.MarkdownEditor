@@ -119,8 +119,6 @@ internal sealed class InlineOffsetMap
             case ContainerInline container:
                 BuildFromContainer(container);
                 break;
-            case LineBreakInline:
-                break;
             case AutolinkInline auto:
                 if (auto.Url.Length > 0)
                 {

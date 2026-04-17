@@ -23,8 +23,10 @@ public partial class MarkdownDocument
 
     private static bool LastLeafEndsWithLineBreak(Block block)
     {
+        if (block is ParagraphBlock para)
+            return para.HasTrailingLineBreak;
         if (block is LeafBlock leaf)
-            return leaf.Inline?.LastChild is LineBreakInline;
+            return leaf.Inline?.LastChild is LineInline;
         if (block is ContainerBlock container && container.Children.Count > 0)
             return LastLeafEndsWithLineBreak(container.Children[^1]);
         return false;
@@ -42,7 +44,7 @@ public partial class MarkdownDocument
 
         for (int i = 0; i < blocks.Count; i++)
         {
-            if (blocks[i] is ParagraphBlock { Inline: null or { FirstChild: null } })
+            if (blocks[i] is ParagraphBlock p && IsEmptyParagraph(p))
             {
                 hadEmptyParagraphBefore = true;
                 continue;
@@ -115,7 +117,7 @@ public partial class MarkdownDocument
                     && prevItem.Children.Count > 0
                     && prevItem.Children[0] is ParagraphBlock prevPara)
                 {
-                    prevEndsWithLB = prevPara.Inline?.LastChild is LineBreakInline;
+                    prevEndsWithLB = prevPara.HasTrailingLineBreak;
                 }
                 if (!prevEndsWithLB)
                 {
@@ -220,9 +222,13 @@ public partial class MarkdownDocument
                     break;
                 }
 
-                case LineBreakInline:
-                    chunks.Add(new VisibleTextChunk("\n", runningOffset, [..blockStyles, ..inlineStyles]));
-                    runningOffset += 1;
+                case LineInline lineInline:
+                    CollectInlineChunksRecursive(lineInline.FirstChild, chunks, blockStyles, inlineStyles, ref runningOffset);
+                    if (lineInline.NextSibling is LineInline)
+                    {
+                        chunks.Add(new VisibleTextChunk("\n", runningOffset, [..blockStyles, ..inlineStyles]));
+                        runningOffset += 1;
+                    }
                     break;
 
                 case HtmlEntityInline entity:

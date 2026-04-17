@@ -181,7 +181,7 @@ public abstract class ContainerInline : Inline
 
 /// <summary>
 /// An inline with no children (a leaf in the inline tree).
-/// Examples: LiteralInline, CodeInline, LineBreakInline.
+/// Examples: LiteralInline, CodeInline.
 /// </summary>
 public abstract class LeafInline : Inline
 {

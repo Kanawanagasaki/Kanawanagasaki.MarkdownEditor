@@ -63,5 +63,5 @@ public abstract class ContainerBlock : Block
 
 public abstract class LeafBlock : Block
 {
-    public ContainerInline? Inline { get; set; }
+    public virtual ContainerInline? Inline { get; set; }
 }
