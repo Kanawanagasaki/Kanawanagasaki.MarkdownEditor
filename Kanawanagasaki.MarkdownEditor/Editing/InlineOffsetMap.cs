@@ -76,7 +76,6 @@ internal sealed class InlineOffsetMap
         var entry = FindEntryAt(offset);
         while (entry is not null && entry.Inline is not LiteralInline)
         {
-            // Move to the next entry
             var idx = _entries.IndexOf(entry);
             if (idx + 1 < _entries.Count)
                 entry = _entries[idx + 1];

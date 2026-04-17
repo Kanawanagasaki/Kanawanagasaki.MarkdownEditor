@@ -71,6 +71,42 @@ public class InlineTests
     }
 
     [Fact]
+    public void ItalicTest_ThirdParagraph()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First paragraph");
+        doc.WriteParagraph("Second paragraph");
+        doc.WriteParagraph("Third paragraph");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Third paragraph");
+        int end = start + "Third paragraph".Length;
+
+        doc.ApplyItalic(start, end);
+
+        Assert.Equal("First paragraph\n\nSecond paragraph\n\n*Third paragraph*", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ItalicTest_MultipleParagraphs()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First paragraph");
+        doc.WriteParagraph("Second paragraph");
+        doc.WriteParagraph("Third paragraph");
+        doc.WriteParagraph("Fourth paragraph");
+        doc.WriteParagraph("Fifth paragraph");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Third paragraph");
+        int end = plainText.IndexOf("Fourth paragraph") + "Fourth paragraph".Length;
+
+        doc.ApplyItalic(start, end);
+
+        Assert.Equal("First paragraph\n\nSecond paragraph\n\n*Third paragraph*\n\n*Fourth paragraph*\n\nFifth paragraph", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
     public void StrikethroughTest()
     {
         var text = "One two three";
@@ -88,6 +124,40 @@ public class InlineTests
     }
 
     [Fact]
+    public void StrikethroughTest_SecondLine()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("First line");
+        doc.WriteLine("Second line");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Second line");
+        int end = start + "Second line".Length;
+
+        doc.ApplyStrikethrough(start, end);
+
+        Assert.Equal("First line\n~~Second line~~\n", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void StrikethroughTest_MultipleLines()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("First line");
+        doc.WriteLine("Second line");
+        doc.WriteLine("Third line");
+        doc.WriteLine("Fourth line");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Second line");
+        int end = plainText.IndexOf("Third line") + "Third line".Length;
+
+        doc.ApplyStrikethrough(start, end);
+
+        Assert.Equal("First line\n~~Second line~~\n~~Third line~~\nFourth line\n", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
     public void CodeTest()
     {
         var text = "One two three";
@@ -102,6 +172,42 @@ public class InlineTests
         var md = doc.ToMarkdown("\n");
 
         Assert.Equal(expected, md);
+    }
+
+    [Fact]
+    public void CodeTest_ThirdParagraph()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First paragraph");
+        doc.WriteParagraph("Second paragraph");
+        doc.WriteParagraph("Third paragraph");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Third paragraph");
+        int end = start + "Third paragraph".Length;
+
+        doc.ApplyCode(start, end);
+
+        Assert.Equal("First paragraph\n\nSecond paragraph\n\n`Third paragraph`", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void CodeTest_MultipleParagraphs()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First paragraph");
+        doc.WriteParagraph("Second paragraph");
+        doc.WriteParagraph("Third paragraph");
+        doc.WriteParagraph("Fourth paragraph");
+        doc.WriteParagraph("Fifth paragraph");
+
+        var plainText = doc.GetPlainText();
+        int start = plainText.IndexOf("Third paragraph");
+        int end = plainText.IndexOf("Fourth paragraph") + "Fourth paragraph".Length;
+
+        doc.ApplyCode(start, end);
+
+        Assert.Equal("First paragraph\n\nSecond paragraph\n\n`Third paragraph`\n\n`Fourth paragraph`\n\nFifth paragraph", doc.ToMarkdown("\n"));
     }
 
     [Fact]

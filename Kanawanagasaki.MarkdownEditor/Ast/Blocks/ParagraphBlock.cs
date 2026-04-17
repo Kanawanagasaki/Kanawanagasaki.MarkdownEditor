@@ -35,10 +35,6 @@ public class ParagraphBlock : LeafBlock
         return Lines[^1];
     }
 
-    /// <summary>
-    /// If Lines were consumed by a previous BuildMergedInline call but
-    /// the cached merged tree has content (possibly edited), re-populate Lines.
-    /// </summary>
     public void SyncFromMergedIfNeeded()
     {
         bool allLinesEmpty = Lines.Count == 0 || Lines.All(l => l.IsEmpty);

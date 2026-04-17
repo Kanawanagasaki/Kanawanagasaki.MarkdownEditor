@@ -76,14 +76,12 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 InsertChild(0, paragraph);
             }
 
-            // Sync from merged inline tree if needed
             paragraph.SyncFromMergedIfNeeded();
 
             var newLine = new LineInline();
             if (!string.IsNullOrEmpty(text))
                 newLine.AppendLiteral(text);
             paragraph.Lines.Insert(0, newLine);
-            // Don't set HasTrailingLineBreak - inserting before content, not adding trailing break
             paragraph.MarkInlineDirty();
             return;
         }
@@ -101,10 +99,8 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     para.SyncFromMergedIfNeeded();
                     int localLineIndex = lineOffset - cumulative;
 
-                    // Remove trailing empty line if it exists and we're inserting before the end
                     if (para.HasTrailingLineBreak && localLineIndex >= para.Lines.Count - 1 && para.Lines.Count > 0 && para.Lines[^1].IsEmpty)
                     {
-                        // Insert before the trailing empty line
                         var newLine = new LineInline();
                         if (!string.IsNullOrEmpty(text))
                             newLine.AppendLiteral(text);
@@ -125,7 +121,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             cumulative += linesInBlock;
         }
 
-        // Insert at end
         ParagraphBlock lastParagraph;
         if (Children.Count > 0 && Children[^1] is ParagraphBlock lp)
         {
@@ -145,7 +140,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         lastParagraph.HasTrailingLineBreak = true;
         lastParagraph.MarkInlineDirty();
 
-        // If inserting at end, add a trailing empty line
         lastParagraph.Lines.Add(new LineInline());
     }
 
@@ -422,12 +416,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         var extractedItem = listBlock.Children[itemIndex];
         listBlock.RemoveChildAt(itemIndex);
 
-        // Create list for extracted item
         var extractedList = new ListBlock(listBlock.ListType);
         extractedList.StartNumber = listBlock.StartNumber;
         extractedList.AddChild(extractedItem);
 
-        // Collect remaining items after the extracted one into a tail list
         ListBlock? tailList = null;
         while (itemIndex < listBlock.Children.Count)
         {
@@ -441,23 +433,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             tailList.AddChild(child);
         }
 
-        // Remove original list if empty
         if (listBlock.Children.Count == 0)
         {
             parent.RemoveChildAt(listIndex);
         }
 
-        // Create blockquote containing the extracted list
         var quote = new QuoteBlock { NestingLevel = 1 };
         AddBlockToQuote(quote, extractedList);
 
-        // Check if we should merge with an adjacent QuoteBlock containing a compatible ListBlock
         bool merged = false;
         if (listIndex > 0 && parent.Children[listIndex - 1] is QuoteBlock prevQuote
             && prevQuote.Children.Count > 0 && prevQuote.Children[0] is ListBlock prevList
             && prevList.ListType == listBlock.ListType)
         {
-            // Merge extracted items into previous quote's list
             prevQuote.RemoveChild(prevList);
             foreach (var item in extractedList.Children.ToList())
             {
@@ -473,7 +461,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             parent.InsertChild(listIndex, quote);
         }
 
-        // Insert tail list
         if (tailList is not null)
         {
             var insertPos = merged
@@ -684,7 +671,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
                     para.SyncFromMergedIfNeeded();
 
-                    // Extract lines [localLineIndex..] into new paragraph
                     var newPara = new ParagraphBlock();
                     while (para.Lines.Count > localLineIndex)
                     {
@@ -1130,7 +1116,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             int len = GetContainerPlainTextLength(line);
             if (line.NextSibling is LineInline nextLine
                 && !(nextLine.IsEmpty && nextLine.NextSibling is null))
-                len += 1; // implicit newline between adjacent LineInline siblings
+                len += 1;
             return len;
         }
         return inline switch
@@ -1214,7 +1200,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         var newPara = new ParagraphBlock();
         var targetLine = para.Lines[lineIndex];
         
-        // Move inlines from target line to new paragraph
         var child = targetLine.FirstChild;
         while (child is not null)
         {
@@ -1223,28 +1208,21 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             child = next;
         }
 
-        // Check if the extracted line was followed by an empty line (trailing break)
         bool wasFollowedByTrailingBreak = para.HasTrailingLineBreak 
-            && lineIndex == para.Lines.Count; // We already removed the line, so this checks if it was the last one
+            && lineIndex == para.Lines.Count;
 
-        // Remove the extracted line
         para.Lines.RemoveAt(lineIndex);
 
-        // If the paragraph becomes empty, remove it
         if (para.Lines.Count == 0 || (para.Lines.Count == 1 && para.Lines[0].IsEmpty && !para.HasTrailingLineBreak))
         {
             para.HasTrailingLineBreak = false;
         }
-        // If the paragraph now ends with an empty trailing line, remove the sentinel
-        // but preserve HasTrailingLineBreak if content lines remain
+        
         else if (para.HasTrailingLineBreak && para.Lines.Count > 0 && para.Lines[^1].IsEmpty)
         {
             para.Lines.RemoveAt(para.Lines.Count - 1);
-            // Keep HasTrailingLineBreak = true since content lines still exist;
-            // only clear it if the paragraph is truly empty (handled above)
         }
 
-        // If the extracted line was followed by a trailing break, pass it to the new paragraph
         if (wasFollowedByTrailingBreak)
         {
             newPara.HasTrailingLineBreak = true;
@@ -1266,7 +1244,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 }
                 else
                 {
-                    // Insert extracted BEFORE remaining content to preserve line indices
                     parent.InsertChild(idx, newPara);
                 }
             }
@@ -1373,7 +1350,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map, delimiterChar);
         if (inlinesToWrap.Count == 0) return;
 
-        // Group non-adjacent inlines (e.g., separated by LineInline boundaries) and wrap each group separately
         var groups = GroupContiguousSiblings(inlinesToWrap);
         foreach (var group in groups)
         {
@@ -1840,7 +1816,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
             if (child is LineInline)
             {
-                // Recurse into LineInline to find containers inside, but don't unwrap LineInline itself
                 UnwrapContainersInRange((ContainerInline)child, start, end, map);
             }
             else if (child is ContainerInline childContainer)
@@ -2176,7 +2151,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 }
                 else if (listItem.Children[0] is QuoteBlock)
                 {
-                    // Blockquotes replace list indentation with their own prefix
                     RenderBlocks(listItem.Children, sb, indentLevel, newLine);
                 }
                 else

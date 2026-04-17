@@ -1,29 +1,13 @@
 namespace Kanawanagasaki.MarkdownEditor.Ast;
 
-/// <summary>
-/// Base class for all inline-level AST nodes.
-/// Inlines are stored as a doubly-linked list within their parent container.
-/// </summary>
 public abstract class Inline : MarkdownObject
 {
-    /// <summary>
-    /// The previous sibling in the doubly-linked list, or null if this is the first.
-    /// </summary>
     public Inline? PreviousSibling { get; internal set; }
 
-    /// <summary>
-    /// The next sibling in the doubly-linked list, or null if this is the last.
-    /// </summary>
     public Inline? NextSibling { get; internal set; }
 
-    /// <summary>
-    /// The parent container inline, or null if this inline is at the root level of a LeafBlock.
-    /// </summary>
     public ContainerInline? ParentInline { get; internal set; }
 
-    /// <summary>
-    /// Inserts this inline before the specified sibling in the linked list.
-    /// </summary>
     internal void InsertBefore(Inline sibling)
     {
         if (sibling.PreviousSibling != null)
@@ -40,9 +24,6 @@ public abstract class Inline : MarkdownObject
         sibling.PreviousSibling = this;
     }
 
-    /// <summary>
-    /// Inserts this inline after the specified sibling in the linked list.
-    /// </summary>
     internal void InsertAfter(Inline sibling)
     {
         if (sibling.NextSibling != null)
@@ -55,9 +36,6 @@ public abstract class Inline : MarkdownObject
         sibling.NextSibling = this;
     }
 
-    /// <summary>
-    /// Removes this inline from the doubly-linked list.
-    /// </summary>
     public void Remove()
     {
         if (PreviousSibling != null)
@@ -74,22 +52,10 @@ public abstract class Inline : MarkdownObject
     }
 }
 
-/// <summary>
-/// An inline that can contain other child inlines.
-/// Examples: EmphasisInline, LinkInline.
-/// Inlines form a doubly-linked list; a ContainerInline owns the first child
-/// and children are linked via PreviousSibling/NextSibling.
-/// </summary>
 public abstract class ContainerInline : Inline
 {
-    /// <summary>
-    /// The first child inline in this container's children linked list.
-    /// </summary>
     public Inline? FirstChild { get; internal set; }
 
-    /// <summary>
-    /// Gets the last child inline by traversing from FirstChild.
-    /// </summary>
     public Inline? LastChild
     {
         get
@@ -102,14 +68,10 @@ public abstract class ContainerInline : Inline
         }
     }
 
-    /// <summary>
-    /// Appends a child inline to the end of this container's children list.
-    /// </summary>
     public void AppendChild(Inline inline)
     {
         ArgumentNullException.ThrowIfNull(inline);
 
-        // Remove from previous position
         inline.Remove();
 
         inline.ParentInline = this;
@@ -127,9 +89,6 @@ public abstract class ContainerInline : Inline
         }
     }
 
-    /// <summary>
-    /// Inserts a child inline at the beginning of this container's children list.
-    /// </summary>
     public void PrependChild(Inline inline)
     {
         ArgumentNullException.ThrowIfNull(inline);
@@ -148,9 +107,6 @@ public abstract class ContainerInline : Inline
         FirstChild = inline;
     }
 
-    /// <summary>
-    /// Removes all children from this container.
-    /// </summary>
     public void ClearChildren()
     {
         var child = FirstChild;
@@ -165,9 +121,6 @@ public abstract class ContainerInline : Inline
         FirstChild = null;
     }
 
-    /// <summary>
-    /// Returns an enumeration of all child inlines in order.
-    /// </summary>
     public IEnumerable<Inline> GetChildren()
     {
         var child = FirstChild;
@@ -179,10 +132,6 @@ public abstract class ContainerInline : Inline
     }
 }
 
-/// <summary>
-/// An inline with no children (a leaf in the inline tree).
-/// Examples: LiteralInline, CodeInline.
-/// </summary>
 public abstract class LeafInline : Inline
 {
 }
