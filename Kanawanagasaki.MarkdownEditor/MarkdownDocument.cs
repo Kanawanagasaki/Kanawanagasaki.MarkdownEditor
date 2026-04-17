@@ -920,7 +920,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
     public EditRangeResult ClearStylesForLine(int lineIndex)
     {
-        var block = GetBlockAtLine(lineIndex);
+        var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
+
+        if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
+        {
+            para.SyncFromMergedIfNeeded();
+            if (localLineIndex >= 0 && localLineIndex < para.Lines.Count)
+            {
+                UnwrapAllContainers(para.Lines[localLineIndex]);
+                para.MarkInlineDirty();
+            }
+            return GetRangeForBlock(block);
+        }
+
         ClearBlockStyles(block);
         return GetRangeForBlock(block);
     }

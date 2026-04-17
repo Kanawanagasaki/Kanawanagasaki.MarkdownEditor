@@ -100,6 +100,17 @@ public partial class MarkdownDocument
                     break;
             }
         }
+
+        if (lastRendered is not null && hadEmptyParagraphBefore)
+        {
+            bool prevEndsWithLB = LastLeafEndsWithLineBreak(lastRendered);
+            if (!prevEndsWithLB)
+            {
+                string sep = isTopLevel ? "\n\n" : "\n";
+                chunks.Add(new VisibleTextChunk(sep, runningOffset, []));
+                runningOffset += sep.Length;
+            }
+        }
     }
 
     private void CollectListChunks(
