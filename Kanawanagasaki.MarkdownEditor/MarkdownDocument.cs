@@ -294,8 +294,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
     }
 
-
-
     public void ConvertToBlockquote(Block block)
     {
         ArgumentNullException.ThrowIfNull(block);
@@ -808,51 +806,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ApplyCode(block, localStart, localEnd);
-    }
-
-    public string DiagDumpTree()
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"Children count: {Children.Count}");
-        foreach (var block in Children)
-            DiagDumpBlock(block, sb, 0);
-        return sb.ToString();
-    }
-
-    private static void DiagDumpBlock(Block block, System.Text.StringBuilder sb, int indent)
-    {
-        var prefix = new string(' ', indent);
-        if (block is LeafBlock leaf)
-        {
-            sb.AppendLine($"{prefix}LeafBlock ({leaf.GetType().Name}) children={leaf.Inline?.FirstChild is not null}");
-            if (leaf.Inline is not null)
-                DiagDumpInline(leaf.Inline, sb, indent + 2);
-        }
-        else if (block is ContainerBlock container)
-        {
-            sb.AppendLine($"{prefix}ContainerBlock children={container.Children.Count}");
-            foreach (var child in container.Children)
-                DiagDumpBlock(child, sb, indent + 2);
-        }
-    }
-
-    private static void DiagDumpInline(ContainerInline? container, System.Text.StringBuilder sb, int indent)
-    {
-        if (container is null) return;
-        var prefix = new string(' ', indent);
-        var child = container.FirstChild;
-        while (child is not null)
-        {
-            string name = child.GetType().Name;
-            string extra = "";
-            if (child is LiteralInline lit) extra = $" \"{lit.Content}\"";
-            else if (child is EmphasisInline emph) extra = $" delim='{emph.DelimiterChar}' count={emph.DelimiterCount} children={emph.FirstChild is not null}";
-            else if (child is LinkInline link) extra = $" url={link.Url} image={link.IsImage} children={link.FirstChild is not null}";
-            sb.AppendLine($"{prefix}{name}{extra}");
-            if (child is ContainerInline c)
-                DiagDumpInline(c, sb, indent + 2);
-            child = child.NextSibling;
-        }
     }
 
     public void ApplyStrikethrough(LeafBlock block, int start, int end)
@@ -1691,52 +1644,6 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 var rightLit = new LiteralInline(rightContent);
                 InlineSplitter.ReplaceInline(code, rightLit);
             }
-        }
-    }
-
-    private void RemoveTextInRange(LeafBlock block, int start, int end, InlineOffsetMap map, List<InlineOffsetMap.Entry> entries)
-    {
-        foreach (var entry in entries)
-        {
-            var relStart = Math.Max(0, start - entry.Start);
-            var relEnd = Math.Min(entry.Length - 1, end - entry.Start);
-
-            if (entry.Inline is LiteralInline lit)
-                RemoveFromLiteral(lit, relStart, relEnd, entry.ContentOffset);
-            else if (entry.Inline is CodeInline code)
-                RemoveFromCodeInline(code, relStart, relEnd);
-        }
-    }
-
-    private void InsertInlineAtOffset(LeafBlock block, int offset, Inline newInline)
-    {
-        if (block.Inline is null)
-        {
-            block.Inline = new InlineRoot();
-        }
-
-        var map = InlineOffsetMap.Build(block);
-
-        if (map.TotalLength == 0 || offset <= 0)
-        {
-            block.Inline.PrependChild(newInline);
-            return;
-        }
-
-        if (offset >= map.TotalLength)
-        {
-            block.Inline.AppendChild(newInline);
-            return;
-        }
-
-        var entry = map.FindEntryAt(offset);
-        if (entry is not null)
-        {
-            InlineSplitter.InsertBeforeInline(entry.Inline, newInline);
-        }
-        else
-        {
-            block.Inline.AppendChild(newInline);
         }
     }
 
