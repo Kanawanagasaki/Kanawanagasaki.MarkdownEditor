@@ -1,6 +1,9 @@
+using System.Text.Json;
+using Xunit.Abstractions;
+
 namespace Kanawanagasaki.MarkdownEditor.Tests;
 
-public class VisibilityTests
+public class VisibilityTests(ITestOutputHelper _output)
 {
     [Fact]
     public void Visibility_BoldItalicStrikethroughCode()
@@ -111,5 +114,43 @@ public class VisibilityTests
 
         Assert.Equal("> One\n> > Two\n> > > Three\n> > > > Four\n", doc.ToMarkdown("\n"));
         Assert.Equal("One\nTwo\nThree\nFour\n", doc.GetPlainText());
+    }
+
+    [Fact]
+    public void Visibility_EmptyLineAtTheEnd()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+        doc.WriteLine();
+
+        Assert.Equal("Hello, world!\n", doc.ToMarkdown("\n"));
+        Assert.Equal("Hello, world!\n", doc.GetPlainText());
+    }
+
+    [Fact]
+    public void Visibility_EmptyLinesAtTheEnd()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+        doc.WriteLine();
+        doc.WriteLine();
+        doc.WriteLine();
+        doc.WriteLine();
+
+        Assert.Equal("Hello, world!\n\n\n\n", doc.ToMarkdown("\n"));
+        Assert.Equal("Hello, world!\n\n\n\n", doc.GetPlainText());
+    }
+
+    [Fact]
+    public void Visibility_EmptyParagraphAtTheEnd()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+        doc.WriteParagraph();
+
+        _output.WriteLine("Markdown: " + JsonSerializer.Serialize(doc.ToMarkdown("\n")));
+        Assert.Equal("Hello, world!\n\n", doc.ToMarkdown("\n"));
+        _output.WriteLine("PlainText: " + JsonSerializer.Serialize(doc.GetPlainText()));
+        Assert.Equal("Hello, world!\n\n", doc.GetPlainText());
     }
 }

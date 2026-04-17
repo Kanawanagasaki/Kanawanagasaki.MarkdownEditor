@@ -115,4 +115,21 @@ public class ClearStylesTests
 
         Assert.Equal("**One **two three", doc.ToMarkdown("\n"));
     }
+
+    [Fact]
+    public void ClearStylesForRange_OneLine()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("One");
+        doc.WriteLine("Two");
+        doc.WriteLine("Three");
+        var endOffset = doc.GetPlainText().Length;
+
+        doc.ApplyBold(0, endOffset);
+        Assert.Equal("**One**\n**Two**\n**Three**\n", doc.ToMarkdown("\n"));
+
+        doc.ClearStylesForLine(1);
+
+        Assert.Equal("**One**\nTwo\n**Three**\n", doc.ToMarkdown("\n"));
+    }
 }
