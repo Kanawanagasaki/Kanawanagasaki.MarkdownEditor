@@ -6,10 +6,14 @@ namespace Kanawanagasaki.MarkdownEditor;
 
 public partial class MarkdownDocument : Ast.MarkdownDocument
 {
-    public void Write(string text)
+    public EditRangeResult Write(string text)
     {
         if (string.IsNullOrEmpty(text))
-            return;
+        {
+            int offset = GetPlainText().Length;
+            int lineIdx = GetLineIndexAtOffset(offset);
+            return new EditRangeResult { StartOffset = offset, EndOffset = offset, LineStartIndex = lineIdx, LineEndIndex = lineIdx };
+        }
 
         var paragraph = GetOrCreateLastParagraph();
         var line = paragraph.GetOrCreateLine();
@@ -23,9 +27,16 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
 
         paragraph.MarkInlineDirty();
+
+        int endOffset = GetPlainText().Length;
+        int startOffset = endOffset - text.Length;
+        int lineStart = GetLineIndexAtOffset(startOffset);
+        int lineEnd = endOffset > startOffset ? GetLineIndexAtOffset(endOffset - 1) : lineStart;
+
+        return new EditRangeResult { StartOffset = startOffset, EndOffset = endOffset, LineStartIndex = lineStart, LineEndIndex = lineEnd };
     }
 
-    public void WriteLine(string? text = null)
+    public EditRangeResult WriteLine(string? text = null)
     {
         ParagraphBlock targetPara;
         if (Children.Count > 0 && Children[^1] is ParagraphBlock p)
@@ -38,6 +49,9 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var lastLine = targetPara.GetOrCreateLine();
 
+        int startOffset = GetPlainText().Length;
+        int lineStart = GetLineIndexAtOffset(startOffset);
+
         if (!string.IsNullOrEmpty(text) && lastLine.IsEmpty)
         {
             lastLine.AppendLiteral(text);
@@ -47,22 +61,34 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         targetPara.HasTrailingLineBreak = true;
         targetPara.MarkInlineDirty();
         _nextWriteCreatesNewParagraph = false;
+
+        int endOffset = !string.IsNullOrEmpty(text) ? startOffset + text.Length : startOffset;
+        return new EditRangeResult { StartOffset = startOffset, EndOffset = endOffset, LineStartIndex = lineStart, LineEndIndex = lineStart };
     }
 
-    public void WriteParagraph(string? text = null)
+    public EditRangeResult WriteParagraph(string? text = null)
     {
         if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
         {
             AddChild(new ParagraphBlock());
         }
 
+        EditRangeResult result;
         if (text is not null)
-            Write(text);
+            result = Write(text);
+        else
+        {
+            int offset = GetPlainText().Length;
+            int line = GetLineIndexAtOffset(offset);
+            result = new EditRangeResult { StartOffset = offset, EndOffset = offset, LineStartIndex = line, LineEndIndex = line };
+        }
         _nextWriteCreatesNewParagraph = true;
+        return result;
     }
 
-    public void InsertLine(int lineOffset, string text)
+    public EditRangeResult InsertLine(int lineOffset, string text)
     {
+        string beforeText = GetPlainText();
         if (lineOffset <= 0)
         {
             ParagraphBlock paragraph;
@@ -83,7 +109,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 newLine.AppendLiteral(text);
             paragraph.Lines.Insert(0, newLine);
             paragraph.MarkInlineDirty();
-            return;
+            return ComputeInsertRange(beforeText, text);
         }
 
         int cumulative = 0;
@@ -106,7 +132,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                             newLine.AppendLiteral(text);
                         para.Lines.Insert(localLineIndex, newLine);
                         para.MarkInlineDirty();
-                        return;
+                        return ComputeInsertRange(beforeText, text);
                     }
 
                     var insertLine = new LineInline();
@@ -114,7 +140,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                         insertLine.AppendLiteral(text);
                     para.Lines.Insert(localLineIndex, insertLine);
                     para.MarkInlineDirty();
-                    return;
+                    return ComputeInsertRange(beforeText, text);
                 }
             }
 
@@ -141,10 +167,12 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         lastParagraph.MarkInlineDirty();
 
         lastParagraph.Lines.Add(new LineInline());
+        return ComputeInsertRange(beforeText, text);
     }
 
-    public void InsertParagraph(int lineOffset, string text)
+    public EditRangeResult InsertParagraph(int lineOffset, string text)
     {
+        string beforeText = GetPlainText();
         var paragraph = new ParagraphBlock();
         if (!string.IsNullOrEmpty(text))
         {
@@ -181,6 +209,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 InsertChild(lineOffset + 1, new ParagraphBlock());
             }
         }
+        return ComputeInsertRange(beforeText, text);
     }
 
     public void RemoveText(LeafBlock block, int start, int end)
@@ -236,7 +265,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             RemoveText(block, localStart, localEnd);
     }
 
-    public void ConvertToHeading(LeafBlock block, int level)
+    public EditRangeResult ConvertToHeading(LeafBlock block, int level)
     {
         ArgumentNullException.ThrowIfNull(block);
 
@@ -255,7 +284,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     paragraph.Inline.Parent = paragraph;
                 ReplaceBlockInParent(block, paragraph);
             }
-            return;
+            return GetRangeForBlock(block);
         }
 
         if (level > 6) level = 6;
@@ -263,7 +292,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         if (block is HeadingBlock existingHeadingBlock)
         {
             existingHeadingBlock.Level = level;
-            return;
+            return GetRangeForBlock(block);
         }
 
         var newHeading = new HeadingBlock(level)
@@ -278,54 +307,59 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             newHeading.Inline.Parent = newHeading;
 
         ReplaceBlockInParent(block, newHeading);
+        return GetRangeForBlock(block);
     }
 
-    public void ConvertToHeading(int lineIndex, int level)
+    public EditRangeResult ConvertToHeading(int lineIndex, int level)
     {
         var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
         if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
         {
             var extracted = ExtractLineFromParagraph(para, localLineIndex);
             ConvertToHeading(extracted, level);
+            return GetRangeForBlock(extracted);
         }
         else if (block is LeafBlock leaf)
         {
             ConvertToHeading(leaf, level);
+            return GetRangeForBlock(leaf);
         }
+        return new EditRangeResult();
     }
 
-    public void ConvertToBlockquote(Block block)
+    public EditRangeResult ConvertToBlockquote(Block block)
     {
         ArgumentNullException.ThrowIfNull(block);
 
         if (block is QuoteBlock)
-            return;
+            return GetRangeForBlock(block);
 
         var parent = block.Parent as ContainerBlock;
         if (parent is null)
             throw new InvalidOperationException("Block has no parent container.");
 
         var index = parent.IndexOfChild(block);
-        if (index < 0) return;
+        if (index < 0) return GetRangeForBlock(block);
 
         if (index > 0 && parent.Children[index - 1] is QuoteBlock prevQuote)
         {
             parent.RemoveChildAt(index);
             AddBlockToQuote(prevQuote, block);
-            return;
+            return GetRangeForBlock(block);
         }
 
         if (index < parent.Children.Count - 1 && parent.Children[index + 1] is QuoteBlock nextQuote)
         {
             parent.RemoveChildAt(index);
             InsertBlockIntoQuote(nextQuote, block, 0);
-            return;
+            return GetRangeForBlock(block);
         }
 
         var quote = new QuoteBlock { NestingLevel = 1 };
         parent.RemoveChildAt(index);
         AddBlockToQuote(quote, block);
         parent.InsertChild(index, quote);
+        return GetRangeForBlock(block);
     }
 
     private static void AddBlockToQuote(QuoteBlock quote, Block block)
@@ -369,12 +403,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
     }
 
-    public void ConvertToBlockquote(int lineIndex)
+    public EditRangeResult ConvertToBlockquote(int lineIndex)
     {
+        var range = GetRangeForBlock(GetBlockAtLine(lineIndex));
         var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
         if (block is QuoteBlock)
         {
-            return;
+            return range;
         }
         else if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
         {
@@ -389,6 +424,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         {
             WrapInStandaloneBlockquote(block);
         }
+        return range;
     }
 
     private void WrapInStandaloneBlockquote(Block block)
@@ -468,9 +504,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
     }
 
-    public void ConvertToBlockquote(int lineIndex, int nestedLevel)
+    public EditRangeResult ConvertToBlockquote(int lineIndex, int nestedLevel)
     {
         var block = GetBlockAtLine(lineIndex);
+        var range = GetRangeForBlock(block);
 
         if (nestedLevel <= 0)
         {
@@ -508,7 +545,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     }
                 }
             }
-            return;
+            return range;
         }
 
         if (block is QuoteBlock existingQuote)
@@ -529,12 +566,12 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                     var innerQuote = new QuoteBlock { NestingLevel = 1 };
                     AddBlockToQuote(innerQuote, nextSibling);
                     deepest.AddChild(innerQuote);
-                    return;
+                    return range;
                 }
             }
 
             existingQuote.NestingLevel = nestedLevel;
-            return;
+            return range;
         }
 
         if (block.Parent is QuoteBlock parentQuote)
@@ -565,15 +602,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 container.InsertChild(index, quote);
             }
         }
+        return range;
     }
 
-    public void ConvertToOrderedList(Block block)
+    public EditRangeResult ConvertToOrderedList(Block block)
     {
+        var range = GetRangeForBlock(block);
         ConvertToList(block, ListType.Ordered);
+        return range;
     }
 
-    public void ConvertToOrderedList(int lineIndex)
+    public EditRangeResult ConvertToOrderedList(int lineIndex)
     {
+        var range = GetRangeForBlock(GetBlockAtLine(lineIndex));
         var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
         if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
         {
@@ -584,15 +625,19 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         {
             ConvertToOrderedList(block);
         }
+        return range;
     }
 
-    public void ConvertToUnorderedList(Block block)
+    public EditRangeResult ConvertToUnorderedList(Block block)
     {
+        var range = GetRangeForBlock(block);
         ConvertToList(block, ListType.Unordered);
+        return range;
     }
 
-    public void ConvertToUnorderedList(int lineIndex)
+    public EditRangeResult ConvertToUnorderedList(int lineIndex)
     {
+        var range = GetRangeForBlock(GetBlockAtLine(lineIndex));
         var (block, localLineIndex) = GetBlockAndLineAt(lineIndex);
         if (block is ParagraphBlock para && CountLinesInBlock(para) > 1)
         {
@@ -603,10 +648,12 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         {
             ConvertToUnorderedList(block);
         }
+        return range;
     }
 
-    public void InsertHorizontalRule()
+    public EditRangeResult InsertHorizontalRule()
     {
+        string beforeText = GetPlainText();
         var hr = new ThematicBreakBlock();
         if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
         {
@@ -614,10 +661,14 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
         AddChild(hr);
         _nextWriteCreatesNewParagraph = true;
+        string afterText = GetPlainText();
+        int commonPrefix = CommonPrefixLength(beforeText, afterText);
+        return CreateRange(commonPrefix, commonPrefix);
     }
 
-    public void InsertHorizontalRule(int lineIndex)
+    public EditRangeResult InsertHorizontalRule(int lineIndex)
     {
+        string beforeText = GetPlainText();
         var hr = new ThematicBreakBlock();
 
         if (lineIndex <= 0)
@@ -625,29 +676,33 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             InsertChild(0, hr);
             if (Children.Count > 1 && !IsEmptyParagraph(Children[1]))
                 InsertChild(1, new ParagraphBlock());
-            return;
-        }
-
-        int targetBlockIndex = SplitBlockAtLine(lineIndex);
-        lineIndex = targetBlockIndex;
-
-        if (lineIndex >= Children.Count)
-        {
-            if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
-                AddChild(new ParagraphBlock());
-            AddChild(hr);
         }
         else
         {
-            if (lineIndex > 0 && !IsEmptyParagraph(Children[lineIndex - 1]))
+            int targetBlockIndex = SplitBlockAtLine(lineIndex);
+            lineIndex = targetBlockIndex;
+
+            if (lineIndex >= Children.Count)
             {
-                InsertChild(lineIndex, new ParagraphBlock());
-                lineIndex++;
+                if (Children.Count > 0 && !IsEmptyParagraph(Children[^1]))
+                    AddChild(new ParagraphBlock());
+                AddChild(hr);
             }
-            InsertChild(lineIndex, hr);
-            if (lineIndex + 1 < Children.Count && !IsEmptyParagraph(Children[lineIndex + 1]))
-                InsertChild(lineIndex + 1, new ParagraphBlock());
+            else
+            {
+                if (lineIndex > 0 && !IsEmptyParagraph(Children[lineIndex - 1]))
+                {
+                    InsertChild(lineIndex, new ParagraphBlock());
+                    lineIndex++;
+                }
+                InsertChild(lineIndex, hr);
+                if (lineIndex + 1 < Children.Count && !IsEmptyParagraph(Children[lineIndex + 1]))
+                    InsertChild(lineIndex + 1, new ParagraphBlock());
+            }
         }
+        string afterText = GetPlainText();
+        int commonPrefix = CommonPrefixLength(beforeText, afterText);
+        return CreateRange(commonPrefix, commonPrefix);
     }
 
     private int SplitBlockAtLine(int lineOffset)
@@ -710,37 +765,41 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         return Children.Count;
     }
 
-    public void ApplyBold(LeafBlock block, int start, int end)
+    public EditRangeResult ApplyBold(LeafBlock block, int start, int end)
     {
         ApplyEmphasisStyle(block, start, end, '*', 2);
+        return CreateRange(start, end);
     }
 
-    public void ApplyBold(int start, int end)
+    public EditRangeResult ApplyBold(int start, int end)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ApplyBold(block, localStart, localEnd);
+        return CreateRange(start, end);
     }
 
-    public void ApplyItalic(LeafBlock block, int start, int end)
+    public EditRangeResult ApplyItalic(LeafBlock block, int start, int end)
     {
         ApplyEmphasisStyle(block, start, end, '*', 1);
+        return CreateRange(start, end);
     }
 
-    public void ApplyItalic(int start, int end)
+    public EditRangeResult ApplyItalic(int start, int end)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ApplyItalic(block, localStart, localEnd);
+        return CreateRange(start, end);
     }
 
-    public void ApplyCode(LeafBlock block, int start, int end)
+    public EditRangeResult ApplyCode(LeafBlock block, int start, int end)
     {
         ArgumentNullException.ThrowIfNull(block);
-        if (block.Inline is null) return;
+        if (block.Inline is null) return CreateRange(start, end);
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
         if (end > map.TotalLength) end = map.TotalLength;
-        if (start >= end) return;
+        if (start >= end) return CreateRange(start, end);
 
         var inclusiveEnd = end - 1;
 
@@ -754,10 +813,10 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
 
         var entries = map.GetEntriesInRange(start, inclusiveEnd);
-        if (entries.Count == 0) return;
+        if (entries.Count == 0) return CreateRange(start, end);
 
         var inlinesToWrap = CollectInlinesToWrap(entries, start, inclusiveEnd, map);
-        if (inlinesToWrap.Count == 0) return;
+        if (inlinesToWrap.Count == 0) return CreateRange(start, end);
 
         var sb = new StringBuilder();
         foreach (var entry in entries)
@@ -800,75 +859,87 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 InlineSplitter.InsertAfterInline(insertBefore!, codeInline);
             }
         }
+        return CreateRange(start, end);
     }
 
-    public void ApplyCode(int start, int end)
+    public EditRangeResult ApplyCode(int start, int end)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ApplyCode(block, localStart, localEnd);
+        return CreateRange(start, end);
     }
 
-    public void ApplyStrikethrough(LeafBlock block, int start, int end)
+    public EditRangeResult ApplyStrikethrough(LeafBlock block, int start, int end)
     {
         ApplyEmphasisStyle(block, start, end, '~', 2);
+        return CreateRange(start, end);
     }
 
-    public void ApplyStrikethrough(int start, int end)
+    public EditRangeResult ApplyStrikethrough(int start, int end)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ApplyStrikethrough(block, localStart, localEnd);
+        return CreateRange(start, end);
     }
 
-    public void MakeImage(LeafBlock block, int start, int end, string url, string? title = null)
+    public EditRangeResult MakeImage(LeafBlock block, int start, int end, string url, string? title = null)
     {
         MakeLinkOrImage(block, start, end, url, title, isImage: true);
+        return CreateRange(start, end);
     }
 
-    public void MakeImage(int start, int end, string url, string? title = null)
+    public EditRangeResult MakeImage(int start, int end, string url, string? title = null)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             MakeImage(block, localStart, localEnd, url, title);
+        return CreateRange(start, end);
     }
 
-    public void MakeLink(LeafBlock block, int start, int end, string url, string? title = null)
+    public EditRangeResult MakeLink(LeafBlock block, int start, int end, string url, string? title = null)
     {
         MakeLinkOrImage(block, start, end, url, title, isImage: false);
+        return CreateRange(start, end);
     }
 
-    public void MakeLink(int start, int end, string url, string? title = null)
+    public EditRangeResult MakeLink(int start, int end, string url, string? title = null)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             MakeLink(block, localStart, localEnd, url, title);
+        return CreateRange(start, end);
     }
 
-    public void ClearAllStyles()
+    public EditRangeResult ClearAllStyles()
     {
+        string plainText = GetPlainText();
         foreach (var child in Children.ToList())
         {
             ClearBlockStyles(child);
         }
+        return CreateRange(0, plainText.Length);
     }
 
-    public void ClearStylesForLine(int lineIndex)
+    public EditRangeResult ClearStylesForLine(int lineIndex)
     {
         var block = GetBlockAtLine(lineIndex);
         ClearBlockStyles(block);
+        return GetRangeForBlock(block);
     }
 
-    public void ClearStylesForBlock(Block block)
+    public EditRangeResult ClearStylesForBlock(Block block)
     {
         ClearBlockStyles(block);
+        return GetRangeForBlock(block);
     }
 
-    public void ClearStylesForRange(LeafBlock block, int start, int end)
+    public EditRangeResult ClearStylesForRange(LeafBlock block, int start, int end)
     {
         ArgumentNullException.ThrowIfNull(block);
-        if (block.Inline is null) return;
+        if (block.Inline is null) return CreateRange(start, end);
 
         var map = InlineOffsetMap.Build(block);
         if (start < 0) start = 0;
         if (end > map.TotalLength) end = map.TotalLength;
-        if (start >= end) return;
+        if (start >= end) return CreateRange(start, end);
 
         var inclusiveEnd = end - 1;
 
@@ -881,12 +952,14 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         }
 
         UnwrapContainersInRange(block.Inline, start, inclusiveEnd, map);
+        return CreateRange(start, end);
     }
 
-    public void ClearStylesForRange(int start, int end)
+    public EditRangeResult ClearStylesForRange(int start, int end)
     {
         foreach (var (block, localStart, localEnd) in ResolveGlobalRange(start, end))
             ClearStylesForRange(block, localStart, localEnd);
+        return CreateRange(start, end);
     }
 
     public string ToMarkdown(string? newLine = null)
@@ -2133,5 +2206,104 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
                 RenderInlines(container, sb);
                 break;
         }
+    }
+
+    private int GetLineIndexAtOffset(int offset)
+    {
+        if (offset <= 0) return 0;
+        int lineIndex = 0;
+        bool prevWasNewline = false;
+        foreach (var chunk in GetVisibleChunks())
+        {
+            for (int i = 0; i < chunk.Text.Length; i++)
+            {
+                if (chunk.Start + i >= offset)
+                    return lineIndex;
+                if (chunk.Text[i] == '\n')
+                {
+                    if (prevWasNewline)
+                        prevWasNewline = false;
+                    else
+                    {
+                        lineIndex++;
+                        prevWasNewline = true;
+                    }
+                }
+                else
+                {
+                    prevWasNewline = false;
+                }
+            }
+        }
+        return lineIndex;
+    }
+
+    private EditRangeResult CreateRange(int startOffset, int endOffset)
+    {
+        int lineStart = GetLineIndexAtOffset(startOffset);
+        int lineEnd = endOffset > startOffset ? GetLineIndexAtOffset(endOffset - 1) : lineStart;
+        return new EditRangeResult { StartOffset = startOffset, EndOffset = endOffset, LineStartIndex = lineStart, LineEndIndex = lineEnd };
+    }
+
+    private (int Start, int End) GetOffsetRangeForBlock(Block block)
+    {
+        var ranges = BuildBlockPlainTextRanges();
+        if (block is LeafBlock leaf)
+        {
+            foreach (var r in ranges)
+            {
+                if (ReferenceEquals(r.Block, leaf))
+                    return (r.PlainTextStart, r.PlainTextEnd);
+            }
+        }
+        int minStart = int.MaxValue, maxEnd = int.MinValue;
+        bool found = false;
+        foreach (var r in ranges)
+        {
+            if (ReferenceEquals(r.Block, block) || IsDescendantBlockOf(r.Block, block))
+            {
+                minStart = Math.Min(minStart, r.PlainTextStart);
+                maxEnd = Math.Max(maxEnd, r.PlainTextEnd);
+                found = true;
+            }
+        }
+        return found ? (minStart, maxEnd) : (0, 0);
+    }
+
+    private EditRangeResult GetRangeForBlock(Block block)
+    {
+        var (startOffset, endOffset) = GetOffsetRangeForBlock(block);
+        return CreateRange(startOffset, endOffset);
+    }
+
+    private static bool IsDescendantBlockOf(Block child, Block ancestor)
+    {
+        var current = child.Parent;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, ancestor))
+                return true;
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    private static int CommonPrefixLength(string a, string b)
+    {
+        int len = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < len; i++)
+        {
+            if (a[i] != b[i]) return i;
+        }
+        return len;
+    }
+
+    private EditRangeResult ComputeInsertRange(string beforeText, string insertedText)
+    {
+        string afterText = GetPlainText();
+        int commonPrefix = CommonPrefixLength(beforeText, afterText);
+        if (string.IsNullOrEmpty(insertedText))
+            return CreateRange(commonPrefix, commonPrefix);
+        return CreateRange(commonPrefix, commonPrefix + insertedText.Length);
     }
 }
