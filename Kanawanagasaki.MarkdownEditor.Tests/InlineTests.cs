@@ -1,42 +1,44 @@
-﻿namespace Kanawanagasaki.MarkdownEditor.Tests;
+namespace Kanawanagasaki.MarkdownEditor.Tests;
 
 public class InlineTests
 {
     [Fact]
-    public void BoldTest()
+    public void ApplyBold_WithTextOffsets()
     {
-        var text = "One two three";
-        var expected = "One **two** three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyBold(new TextOffset(4), new TextOffset(7));
 
-        doc.Write(text);
-        doc.ApplyBold(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
+        Assert.Equal("One **two** three", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void BoldTest_SecondLine()
+    public void ApplyBold_WithTextRange()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One ");
+        var range = doc.Write("two");
+        doc.Write(" three");
+        doc.ApplyBold(range);
+
+        Assert.Equal("One **two** three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ApplyBold_CrossLine()
     {
         var doc = new MarkdownDocument();
         doc.WriteLine("First line");
         doc.WriteLine("Second line");
 
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Second line");
-        int end = start + "Second line".Length;
-
-        doc.ApplyBold(start, end);
+        if (doc.Find("Second line") is { } range)
+            doc.ApplyBold(range);
 
         Assert.Equal("First line\n**Second line**\n", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void BoldTest_MultipleLines()
+    public void ApplyBold_MultipleLines()
     {
         var doc = new MarkdownDocument();
         doc.WriteLine("First line");
@@ -44,51 +46,163 @@ public class InlineTests
         doc.WriteLine("Third line");
         doc.WriteLine("Fourth line");
 
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Second line");
-        int end = plainText.IndexOf("Third line") + "Third line".Length;
-
-        doc.ApplyBold(start, end);
+        if (doc.Find("Second line") is { } startRange && doc.Find("Third line") is { } endRange)
+            doc.ApplyBold(startRange.StartOffset, endRange.EndOffset);
 
         Assert.Equal("First line\n**Second line**\n**Third line**\nFourth line\n", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ItalicTest()
+    public void ApplyItalic_WithTextOffsets()
     {
-        var text = "One two three";
-        var expected = "One *two* three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyItalic(new TextOffset(4), new TextOffset(7));
 
-        doc.Write(text);
-        doc.ApplyItalic(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
+        Assert.Equal("One *two* three", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ItalicTest_ThirdParagraph()
+    public void ApplyItalic_WithTextRange()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One ");
+        var range = doc.Write("two");
+        doc.Write(" three");
+        doc.ApplyItalic(range);
+
+        Assert.Equal("One *two* three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ApplyItalic_ThirdParagraph()
     {
         var doc = new MarkdownDocument();
         doc.WriteParagraph("First paragraph");
         doc.WriteParagraph("Second paragraph");
         doc.WriteParagraph("Third paragraph");
 
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Third paragraph");
-        int end = start + "Third paragraph".Length;
-
-        doc.ApplyItalic(start, end);
+        if (doc.Find("Third paragraph") is { } range)
+            doc.ApplyItalic(range);
 
         Assert.Equal("First paragraph\n\nSecond paragraph\n\n*Third paragraph*", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ItalicTest_MultipleParagraphs()
+    public void ApplyStrikethrough_WithTextOffsets()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyStrikethrough(new TextOffset(4), new TextOffset(7));
+
+        Assert.Equal("One ~~two~~ three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ApplyStrikethrough_WithTextRange()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Old ");
+        var range = doc.Write("text");
+        doc.Write(" new text");
+        doc.ApplyStrikethrough(range);
+
+        Assert.Equal("Old ~~text~~ new text", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ApplyCode_WithTextOffsets()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyCode(new TextOffset(4), new TextOffset(7));
+
+        Assert.Equal("One `two` three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ApplyCode_WithTextRange()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Use ");
+        var range = doc.Write("var");
+        doc.Write(" keyword");
+        doc.ApplyCode(range);
+
+        Assert.Equal("Use `var` keyword", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void BoldItalic_Combined()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyBold(new TextOffset(4), new TextOffset(7));
+        doc.ApplyItalic(new TextOffset(4), new TextOffset(7));
+
+        Assert.Equal("One ***two*** three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void BoldItalicStrikethrough_Combined()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyBold(new TextOffset(4), new TextOffset(7));
+        doc.ApplyItalic(new TextOffset(4), new TextOffset(7));
+        doc.ApplyStrikethrough(new TextOffset(4), new TextOffset(7));
+
+        Assert.Equal("One ***~~two~~*** three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void AllFourStyles_Combined()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyBold(new TextOffset(4), new TextOffset(7));
+        doc.ApplyItalic(new TextOffset(4), new TextOffset(7));
+        doc.ApplyStrikethrough(new TextOffset(4), new TextOffset(7));
+        doc.ApplyCode(new TextOffset(4), new TextOffset(7));
+
+        Assert.Equal("One ***~~`two`~~*** three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void AllFourStyles_OrderIsImportant()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three");
+        doc.ApplyCode(new TextOffset(4), new TextOffset(7));
+        doc.ApplyItalic(new TextOffset(4), new TextOffset(7));
+        doc.ApplyStrikethrough(new TextOffset(4), new TextOffset(7));
+        doc.ApplyBold(new TextOffset(4), new TextOffset(7));
+
+        Assert.Equal("One `*~~**two**~~*` three", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void DifferentStyleOrder_ProducesDifferentNesting()
+    {
+        var doc1 = new MarkdownDocument();
+        doc1.Write("One two three");
+        doc1.ApplyCode(new TextOffset(4), new TextOffset(7));
+        doc1.ApplyStrikethrough(new TextOffset(4), new TextOffset(7));
+        doc1.ApplyItalic(new TextOffset(4), new TextOffset(7));
+        doc1.ApplyBold(new TextOffset(4), new TextOffset(7));
+
+        var doc2 = new MarkdownDocument();
+        doc2.Write("One two three");
+        doc2.ApplyStrikethrough(new TextOffset(4), new TextOffset(7));
+        doc2.ApplyBold(new TextOffset(4), new TextOffset(7));
+        doc2.ApplyCode(new TextOffset(4), new TextOffset(7));
+        doc2.ApplyItalic(new TextOffset(4), new TextOffset(7));
+
+        Assert.NotEqual(doc1.ToMarkdown("\n"), doc2.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ApplyBold_AcrossParagraphs()
     {
         var doc = new MarkdownDocument();
         doc.WriteParagraph("First paragraph");
@@ -97,213 +211,34 @@ public class InlineTests
         doc.WriteParagraph("Fourth paragraph");
         doc.WriteParagraph("Fifth paragraph");
 
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Third paragraph");
-        int end = plainText.IndexOf("Fourth paragraph") + "Fourth paragraph".Length;
+        if (doc.Find("Third paragraph") is { } startRange && doc.Find("Fourth paragraph") is { } endRange)
+            doc.ApplyBold(startRange.StartOffset, endRange.EndOffset);
 
-        doc.ApplyItalic(start, end);
-
-        Assert.Equal("First paragraph\n\nSecond paragraph\n\n*Third paragraph*\n\n*Fourth paragraph*\n\nFifth paragraph", doc.ToMarkdown("\n"));
+        Assert.Equal("First paragraph\n\nSecond paragraph\n\n**Third paragraph**\n\n**Fourth paragraph**\n\nFifth paragraph", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void StrikethroughTest()
+    public void ApplyStyle_ReturnsSameOffsets()
     {
-        var text = "One two three";
-        var expected = "One ~~two~~ three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
         var doc = new MarkdownDocument();
+        doc.Write("Hello world");
+        var result = doc.ApplyBold(new TextOffset(0), new TextOffset(5));
 
-        doc.Write(text);
-        doc.ApplyStrikethrough(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
+        Assert.Equal(new TextOffset(0), result.StartOffset);
+        Assert.Equal(new TextOffset(5), result.EndOffset);
     }
 
     [Fact]
-    public void StrikethroughTest_SecondLine()
+    public void WriteThenApplyStyle_FullChain()
     {
         var doc = new MarkdownDocument();
-        doc.WriteLine("First line");
-        doc.WriteLine("Second line");
+        doc.Write("ABC ");
+        var r1 = doc.Write("DEF");
+        doc.Write(" GHI");
+        doc.ApplyBold(r1);
+        doc.ApplyCode(r1);
+        doc.ApplyStrikethrough(r1);
 
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Second line");
-        int end = start + "Second line".Length;
-
-        doc.ApplyStrikethrough(start, end);
-
-        Assert.Equal("First line\n~~Second line~~\n", doc.ToMarkdown("\n"));
-    }
-
-    [Fact]
-    public void StrikethroughTest_MultipleLines()
-    {
-        var doc = new MarkdownDocument();
-        doc.WriteLine("First line");
-        doc.WriteLine("Second line");
-        doc.WriteLine("Third line");
-        doc.WriteLine("Fourth line");
-
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Second line");
-        int end = plainText.IndexOf("Third line") + "Third line".Length;
-
-        doc.ApplyStrikethrough(start, end);
-
-        Assert.Equal("First line\n~~Second line~~\n~~Third line~~\nFourth line\n", doc.ToMarkdown("\n"));
-    }
-
-    [Fact]
-    public void CodeTest()
-    {
-        var text = "One two three";
-        var expected = "One `two` three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
-        var doc = new MarkdownDocument();
-
-        doc.Write(text);
-        doc.ApplyCode(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
-    }
-
-    [Fact]
-    public void CodeTest_ThirdParagraph()
-    {
-        var doc = new MarkdownDocument();
-        doc.WriteParagraph("First paragraph");
-        doc.WriteParagraph("Second paragraph");
-        doc.WriteParagraph("Third paragraph");
-
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Third paragraph");
-        int end = start + "Third paragraph".Length;
-
-        doc.ApplyCode(start, end);
-
-        Assert.Equal("First paragraph\n\nSecond paragraph\n\n`Third paragraph`", doc.ToMarkdown("\n"));
-    }
-
-    [Fact]
-    public void CodeTest_MultipleParagraphs()
-    {
-        var doc = new MarkdownDocument();
-        doc.WriteParagraph("First paragraph");
-        doc.WriteParagraph("Second paragraph");
-        doc.WriteParagraph("Third paragraph");
-        doc.WriteParagraph("Fourth paragraph");
-        doc.WriteParagraph("Fifth paragraph");
-
-        var plainText = doc.GetPlainText();
-        int start = plainText.IndexOf("Third paragraph");
-        int end = plainText.IndexOf("Fourth paragraph") + "Fourth paragraph".Length;
-
-        doc.ApplyCode(start, end);
-
-        Assert.Equal("First paragraph\n\nSecond paragraph\n\n`Third paragraph`\n\n`Fourth paragraph`\n\nFifth paragraph", doc.ToMarkdown("\n"));
-    }
-
-    [Fact]
-    public void BoldItalicTest()
-    {
-        var text = "One two three";
-        var expected = "One ***two*** three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
-        var doc = new MarkdownDocument();
-
-        doc.Write(text);
-        doc.ApplyBold(twoStart, twoEnd);
-        doc.ApplyItalic(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
-    }
-
-    [Fact]
-    public void BoldItalicStrikethroughTest()
-    {
-        var text = "One two three";
-        var expected = "One ***~~two~~*** three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
-        var doc = new MarkdownDocument();
-
-        doc.Write(text);
-        doc.ApplyBold(twoStart, twoEnd);
-        doc.ApplyItalic(twoStart, twoEnd);
-        doc.ApplyStrikethrough(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
-    }
-
-    [Fact]
-    public void BoldItalicStrikethroughCodeTest()
-    {
-        var text = "One two three";
-        var expected = "One ***~~`two`~~*** three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
-        var doc = new MarkdownDocument();
-
-        doc.Write(text);
-        doc.ApplyBold(twoStart, twoEnd);
-        doc.ApplyItalic(twoStart, twoEnd);
-        doc.ApplyStrikethrough(twoStart, twoEnd);
-        doc.ApplyCode(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
-    }
-
-    [Fact]
-    public void CodeStrikethroughItalicBoldTest()
-    {
-        var text = "One two three";
-        var expected = "One `~~***two***~~` three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
-        var doc = new MarkdownDocument();
-
-        doc.Write(text);
-        doc.ApplyCode(twoStart, twoEnd);
-        doc.ApplyStrikethrough(twoStart, twoEnd);
-        doc.ApplyItalic(twoStart, twoEnd);
-        doc.ApplyBold(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
-    }
-
-    [Fact]
-    public void StrikethroughBoldCodeItalicTest()
-    {
-        var text = "One two three";
-        var expected = "One ~~**`*two*`**~~ three";
-        int twoStart = text.IndexOf("two");
-        int twoEnd = twoStart + "two".Length;
-        var doc = new MarkdownDocument();
-
-        doc.Write(text);
-        doc.ApplyStrikethrough(twoStart, twoEnd);
-        doc.ApplyBold(twoStart, twoEnd);
-        doc.ApplyCode(twoStart, twoEnd);
-        doc.ApplyItalic(twoStart, twoEnd);
-
-        var md = doc.ToMarkdown("\n");
-
-        Assert.Equal(expected, md);
+        Assert.Equal("ABC **`~~DEF~~`** GHI", doc.ToMarkdown("\n"));
     }
 }

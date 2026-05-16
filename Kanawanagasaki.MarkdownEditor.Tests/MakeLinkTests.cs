@@ -3,86 +3,132 @@ namespace Kanawanagasaki.MarkdownEditor.Tests;
 public class MakeLinkTests
 {
     [Fact]
-    public void MakeLink_BasicLink()
+    public void BasicLink_WithTextOffsets()
     {
         var doc = new MarkdownDocument();
         doc.Write("Click here for info");
-        int start = "Click ".Length;
-        int end = start + "here".Length;
+        doc.MakeLink(new TextOffset(6), new TextOffset(10), "https://example.com");
 
-        doc.MakeLink(start, end, "https://example.com");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Click [here](https://example.com) for info", md);
+        Assert.Equal("Click [here](https://example.com) for info", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeLink_WithTitle()
+    public void BasicLink_WithTextRange()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Click ");
+        var range = doc.Write("here");
+        doc.Write(" for more");
+        doc.MakeLink(range, "https://example.com");
+
+        Assert.Equal("Click [here](https://example.com) for more", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void WithTitle()
     {
         var doc = new MarkdownDocument();
         doc.Write("Visit example");
-        int start = "Visit ".Length;
-        int end = start + "example".Length;
+        doc.MakeLink(new TextOffset(6), new TextOffset(13), "https://example.com", "Example Site");
 
-        doc.MakeLink(start, end, "https://example.com", "Example Site");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Visit [example](https://example.com \"Example Site\")", md);
+        Assert.Equal("Visit [example](https://example.com \"Example Site\")", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeLink_EntireText()
+    public void EntireText()
     {
         var doc = new MarkdownDocument();
-        doc.Write("Google");
-        doc.MakeLink(0, "Google".Length, "https://google.com");
+        var range = doc.Write("Google");
+        doc.MakeLink(range, "https://google.com");
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("[Google](https://google.com)", md);
+        Assert.Equal("[Google](https://google.com)", doc.ToMarkdown("\n"));
     }
+
     [Fact]
-    public void MakeLink_ThenBold()
+    public void LinkThenBold_BoldInsideLinkText()
     {
         var doc = new MarkdownDocument();
         doc.Write("Bold link text");
-        int start = "Bold ".Length;
-        int end = start + "link".Length;
+        var range = doc.Find("link");
+        Assert.NotNull(range);
+        doc.MakeLink(range.Value, "https://example.com");
+        doc.ApplyBold(range.Value);
 
-        doc.MakeLink(start, end, "https://example.com");
-        doc.ApplyBold(start, end);
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Bold [**link**](https://example.com) text", md);
+        Assert.Equal("Bold [**link**](https://example.com) text", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeLink_OnBoldText()
+    public void BoldThenLink_BoldWrapsEntireLink()
     {
         var doc = new MarkdownDocument();
         doc.Write("Bold link text");
-        int start = "Bold ".Length;
-        int end = start + "link".Length;
+        var range = doc.Find("link");
+        Assert.NotNull(range);
+        doc.ApplyBold(range.Value);
+        doc.MakeLink(range.Value, "https://example.com");
 
-        doc.ApplyBold(start, end);
-        doc.MakeLink(start, end, "https://example.com");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Bold **[link](https://example.com)** text", md);
+        Assert.Equal("Bold **[link](https://example.com)** text", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeLink_BoldTextInside()
+    public void BoldTextInsideLinkRange()
     {
         var doc = new MarkdownDocument();
         doc.Write("Bold link text");
-        int boldStart = "Bold ".Length;
-        int boldEnd = boldStart + "link".Length;
-        int end = "Bold link text".Length;
+        if (doc.Find("link") is { } boldRange)
+            doc.ApplyBold(boldRange);
+        doc.MakeLink(new TextOffset(0), new TextOffset(15), "https://example.com");
 
-        doc.ApplyBold(boldStart, boldEnd);
-        doc.MakeLink(0, end, "https://example.com");
+        Assert.Equal("[Bold **link** text](https://example.com)", doc.ToMarkdown("\n"));
+    }
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("[Bold **link** text](https://example.com)", md);
+    [Fact]
+    public void WriteThenMakeLink_FullChain()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Click ");
+        var range = doc.Write("here");
+        doc.Write(" for info");
+        doc.ApplyBold(range);
+        doc.MakeLink(range, "https://example.com");
+
+        Assert.Equal("Click **[here](https://example.com)** for info", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void LinkWithItalic()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Go ");
+        var range = doc.Write("there");
+        doc.Write(" now");
+        doc.MakeLink(range, "https://example.com");
+        doc.ApplyItalic(range);
+
+        Assert.Equal("Go [*there*](https://example.com) now", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void StrikethroughThenLink()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Old ");
+        var range = doc.Write("link");
+        doc.Write(" text");
+        doc.ApplyStrikethrough(range);
+        doc.MakeLink(range, "https://example.com");
+
+        Assert.Equal("Old ~~[link](https://example.com)~~ text", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void MakeLink_ReturnsSameOffsets()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Visit example site");
+        var result = doc.MakeLink(new TextOffset(6), new TextOffset(13), "https://example.com");
+
+        Assert.Equal(new TextOffset(6), result.StartOffset);
+        Assert.Equal(new TextOffset(13), result.EndOffset);
     }
 }

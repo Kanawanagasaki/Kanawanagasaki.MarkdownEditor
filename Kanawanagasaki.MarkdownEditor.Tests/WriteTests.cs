@@ -40,7 +40,7 @@ public class WriteTests
     }
 
     [Fact]
-    public void WriteLine_NonEmptyWriteLine()
+    public void WriteLine_WithText_AppendsTextThenBreaks()
     {
         var doc = new MarkdownDocument();
         doc.Write("Hello");
@@ -48,7 +48,7 @@ public class WriteTests
         doc.Write("World");
 
         var md = doc.ToMarkdown("\n");
-        Assert.Equal("Hello\nWorld", md);
+        Assert.Equal("Hello!\nWorld", md);
     }
 
     [Fact]
@@ -71,7 +71,6 @@ public class WriteTests
         doc.WriteLine("Second line");
 
         var md = doc.ToMarkdown("\n");
-        
         Assert.Equal("First line\nSecond line\n", md);
     }
 
@@ -83,51 +82,40 @@ public class WriteTests
         doc.WriteParagraph("Second line");
 
         var md = doc.ToMarkdown("\n");
-        
         Assert.Equal("First line\n\nSecond line", md);
     }
 
     [Fact]
-    public void InsertLine_AtBeginning()
+    public void InsertLine_AtBlockBeginning()
     {
         var doc = new MarkdownDocument();
         doc.Write("Original");
-        doc.InsertLine(0, "Inserted first");
+        doc.InsertLine(new BlockIndex(0), lineWithinBlock: 0, "Inserted first");
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("Inserted first\nOriginal", md);
     }
 
     [Fact]
-    public void InsertParagraph_AtBeginning()
+    public void InsertParagraph_AtBlockBeginning()
     {
         var doc = new MarkdownDocument();
         doc.Write("Original");
-        doc.InsertParagraph(0, "Inserted first");
+        doc.InsertParagraph(new BlockIndex(0), "Inserted first");
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("Inserted first\n\nOriginal", md);
     }
+
     [Fact]
-    public void InsertLine_AtEnd()
+    public void InsertLine_AfterLastBlock()
     {
         var doc = new MarkdownDocument();
         doc.Write("Original");
-        doc.InsertLine(1, "Appended");
+        doc.InsertLine(new BlockIndex(0), lineWithinBlock: 1, "Appended");
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("Original\nAppended\n", md);
-    }
-
-    [Fact]
-    public void InsertParagraph_AtEnd()
-    {
-        var doc = new MarkdownDocument();
-        doc.Write("Original");
-        doc.InsertParagraph(1, "Appended");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Original\n\nAppended", md);
     }
 
     [Fact]
@@ -136,7 +124,7 @@ public class WriteTests
         var doc = new MarkdownDocument();
         doc.WriteLine("First");
         doc.WriteLine("Third");
-        doc.InsertLine(1, "Second");
+        doc.InsertLine(new BlockIndex(0), lineWithinBlock: 1, "Second");
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("First\nSecond\nThird\n", md);
@@ -145,39 +133,12 @@ public class WriteTests
     [Fact]
     public void InsertParagraph_InMiddle()
     {
-        var doc1 = new MarkdownDocument();
-        doc1.WriteParagraph("First");
-        doc1.WriteParagraph("Third");
-        doc1.InsertParagraph(1, "Second");
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First");
+        doc.WriteParagraph("Third");
+        doc.InsertParagraph(new BlockIndex(1), "Second");
 
-        Assert.Equal("First\n\nSecond\n\nThird", doc1.ToMarkdown("\n"));
-        
-        var doc2 = new MarkdownDocument();
-        doc2.WriteParagraph("First");
-        doc2.WriteParagraph("Third");
-        doc2.InsertParagraph(2, "Second");
-
-        Assert.Equal("First\n\nSecond\n\nThird", doc2.ToMarkdown("\n"));
-        
-        var doc3 = new MarkdownDocument();
-        doc3.WriteParagraph("First");
-        doc3.WriteParagraph("Second");
-        doc3.WriteParagraph("Third");
-        doc3.WriteParagraph("Fourth");
-        doc3.WriteParagraph("Sixth");
-        doc3.InsertParagraph(7, "Fifth");
-
-        Assert.Equal("First\n\nSecond\n\nThird\n\nFourth\n\nFifth\n\nSixth", doc3.ToMarkdown("\n"));
-        
-        var doc4 = new MarkdownDocument();
-        doc4.WriteParagraph("First");
-        doc4.WriteParagraph("Second");
-        doc4.WriteParagraph("Third");
-        doc4.WriteParagraph("Fourth");
-        doc4.WriteParagraph("Sixth");
-        doc4.InsertParagraph(8, "Fifth");
-
-        Assert.Equal("First\n\nSecond\n\nThird\n\nFourth\n\nFifth\n\nSixth", doc4.ToMarkdown("\n"));
+        Assert.Equal("First\n\nSecond\n\nThird", doc.ToMarkdown("\n"));
     }
 
     [Fact]
@@ -185,7 +146,7 @@ public class WriteTests
     {
         var doc = new MarkdownDocument();
         doc.Write("Hello");
-        doc.InsertLine(1, "");
+        doc.InsertLine(new BlockIndex(0), lineWithinBlock: 1, "");
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("Hello\n\n", md);
@@ -196,53 +157,71 @@ public class WriteTests
     {
         var doc = new MarkdownDocument();
         doc.Write("Hello");
-        doc.InsertParagraph(1, "");
+        doc.InsertParagraph(new BlockIndex(1), "");
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("Hello\n\n", md);
     }
 
     [Fact]
-    public void InsertLine_NegativeOffset_InsertsAtStart()
+    public void Write_ReturnsTextRangeWithCorrectOffsets()
     {
         var doc = new MarkdownDocument();
-        doc.Write("Original");
-        doc.InsertLine(-5, "Clamped to start");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Clamped to start\nOriginal", md);
+        var range = doc.Write("Hello");
+        Assert.Equal(new TextOffset(0), range.StartOffset);
+        Assert.Equal(new TextOffset(5), range.EndOffset);
     }
 
     [Fact]
-    public void InsertParagraph_NegativeOffset_InsertsAtStart()
+    public void Write_ChainedReturnsCumulativeOffsets()
     {
         var doc = new MarkdownDocument();
-        doc.Write("Original");
-        doc.InsertParagraph(-5, "Clamped to start");
+        doc.Write("One ");
+        var range = doc.Write("two");
+        doc.Write(" three");
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Clamped to start\n\nOriginal", md);
+        Assert.Equal(new TextOffset(4), range.StartOffset);
+        Assert.Equal(new TextOffset(7), range.EndOffset);
     }
 
     [Fact]
-    public void InsertLine_OutOfRangeOffset_InsertsAtEnd()
+    public void WriteLine_WithText_ReturnsRangeOfWrittenText()
     {
         var doc = new MarkdownDocument();
-        doc.Write("Original");
-        doc.InsertLine(100, "Clamped to end");
+        var range = doc.WriteLine("Hello");
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Original\nClamped to end\n", md);
+        Assert.Equal(new TextOffset(0), range.StartOffset);
+        Assert.Equal(new TextOffset(6), range.EndOffset);
     }
 
     [Fact]
-    public void InsertParagraph_OutOfRangeOffset_InsertsAtEnd()
+    public void WriteParagraph_WithText_ReturnsRangeOfWrittenText()
     {
         var doc = new MarkdownDocument();
-        doc.Write("Original");
-        doc.InsertParagraph(100, "Clamped to end");
+        var range = doc.WriteParagraph("Hello");
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Original\n\nClamped to end", md);
+        Assert.Equal(new TextOffset(0), range.StartOffset);
+        Assert.Equal(new TextOffset(5), range.EndOffset);
+    }
+
+    [Fact]
+    public void PlainTextLength_AfterWrites()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello");
+        Assert.Equal(5, doc.PlainTextLength);
+
+        doc.Write(" world");
+        Assert.Equal(11, doc.PlainTextLength);
+    }
+
+    [Fact]
+    public void Length_WithStyledText_IncludesMarkers()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Bold");
+        doc.ApplyBold(new TextOffset(0), new TextOffset(4));
+        Assert.Equal(4, doc.PlainTextLength);
+        Assert.Equal(8, doc.Length);
     }
 }

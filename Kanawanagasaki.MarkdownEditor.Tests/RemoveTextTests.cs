@@ -1,126 +1,115 @@
 namespace Kanawanagasaki.MarkdownEditor.Tests;
 
-public class RemoveText
+public class RemoveTextTests
 {
     [Fact]
-    public void RemoveText_MiddleOfParagraph()
+    public void MiddleOfParagraph_WithTextOffsets()
     {
         var doc = new MarkdownDocument();
         doc.Write("One two three");
-        doc.RemoveText(4, 8);
+        doc.RemoveText(new TextOffset(4), new TextOffset(8));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("One three", md);
+        Assert.Equal("One three", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_StartOfParagraph()
+    public void StartOfParagraph()
     {
         var doc = new MarkdownDocument();
         doc.Write("One two three");
-        doc.RemoveText(0, 4);
+        doc.RemoveText(new TextOffset(0), new TextOffset(4));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("two three", md);
+        Assert.Equal("two three", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_EndOfParagraph()
+    public void EndOfParagraph()
     {
         var doc = new MarkdownDocument();
         doc.Write("One two three");
-        doc.RemoveText(7, 13);
+        doc.RemoveText(new TextOffset(7), new TextOffset(13));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("One two", md);
+        Assert.Equal("One two", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_EntireText()
+    public void EntireText()
     {
         var doc = new MarkdownDocument();
         doc.Write("Everything");
-        doc.RemoveText(0, 10);
+        doc.RemoveText(new TextOffset(0), new TextOffset(10));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("", md);
+        Assert.Equal("", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_SingleCharacter()
+    public void SingleCharacter()
     {
         var doc = new MarkdownDocument();
         doc.Write("abc");
-        doc.RemoveText(1, 2);
+        doc.RemoveText(new TextOffset(1), new TextOffset(2));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("ac", md);
+        Assert.Equal("ac", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_OutOfRange_ClampsToContent()
-    {
-        var doc = new MarkdownDocument();
-        doc.Write("abc");
-        doc.RemoveText(0, 100);
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("", md);
-    }
-
-    [Fact]
-    public void RemoveText_EmptyRange_NoOp()
+    public void EmptyRange_NoOp()
     {
         var doc = new MarkdownDocument();
         doc.Write("Hello");
-        doc.RemoveText(2, 2);
+        doc.RemoveText(new TextOffset(2), new TextOffset(2));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Hello", md);
+        Assert.Equal("Hello", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_NegativeStart_ClampsToZero()
+    public void WithTextRange()
     {
         var doc = new MarkdownDocument();
-        doc.Write("Hello");
-        doc.RemoveText(-5, 2);
+        doc.Write("One ");
+        var range = doc.Write("two");
+        doc.Write(" three");
+        doc.RemoveText(range);
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("llo", md);
+        Assert.Equal("One  three", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void RemoveText_ShouldClearEmpty()
-    {
-        var doc = new MarkdownDocument();
-        doc.Write("One two three four five");
-
-        var twoStart = "One ".Length;
-        var threeEnd = twoStart + "two three".Length;
-
-        doc.ApplyBold(twoStart, threeEnd);
-        doc.RemoveText(twoStart, threeEnd + 1);
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("One four five", md);
-    }
-
-    [Fact]
-    public void RemoveText_CrossBorder()
+    public void RemovesStyledText_CleansUpEmptyStyle()
     {
         var doc = new MarkdownDocument();
         doc.Write("One two three four five");
+        var range = doc.Find("two three");
+        Assert.NotNull(range);
+        doc.ApplyBold(range.Value);
+        doc.RemoveText(range.Value.StartOffset, new TextOffset(range.Value.EndOffset.Value + 1));
 
-        var twoStart = "One ".Length;
-        var threeStart = twoStart + "two ".Length;
-        var threeEnd = threeStart + "three".Length;
-        var fourEnd = threeEnd + " four".Length;
+        Assert.Equal("One four five", doc.ToMarkdown("\n"));
+    }
 
-        doc.ApplyBold(twoStart, threeEnd);
-        doc.RemoveText(threeStart, fourEnd + 1);
+    [Fact]
+    public void CrossBorderRemoval_LeavesStylesOnRemainingText()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three four five");
+        if (doc.Find("two") is { } twoRange && doc.Find("three") is { } threeRange)
+        {
+            doc.ApplyBold(twoRange.StartOffset, threeRange.EndOffset);
+            doc.RemoveText(threeRange.StartOffset, new TextOffset(threeRange.EndOffset.Value + 5));
+        }
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("One **two **five", md);
+        Assert.Equal("One **two **five", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void RemoveAfterWrite_UsingRanges()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Prefix ");
+        var removable = doc.Write("DELETE");
+        doc.Write(" suffix");
+        doc.RemoveText(removable);
+
+        Assert.Equal("Prefix  suffix", doc.ToMarkdown("\n"));
     }
 }

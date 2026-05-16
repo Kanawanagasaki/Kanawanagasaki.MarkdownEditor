@@ -3,93 +3,170 @@ namespace Kanawanagasaki.MarkdownEditor.Tests;
 public class ConvertToBlockquoteTests
 {
     [Fact]
-    public void ConvertToBlockquote_BasicParagraph()
+    public void BasicParagraph()
     {
         var doc = new MarkdownDocument();
         doc.Write("A quote");
-        doc.ConvertToBlockquote(0);
+        doc.ConvertToBlockquote(new BlockIndex(0));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("> A quote", md);
+        Assert.Equal("> A quote", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToBlockquote_PreservesStyles()
+    public void PreservesInlineStyles()
     {
         var doc = new MarkdownDocument();
         doc.Write("Bold quote");
-        doc.ApplyBold(0, 4);
-        doc.ConvertToBlockquote(0);
+        doc.ApplyBold(new TextOffset(0), new TextOffset(4));
+        doc.ConvertToBlockquote(new BlockIndex(0));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("> **Bold** quote", md);
+        Assert.Equal("> **Bold** quote", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToBlockquote_MultipleLines()
-    {
-        var doc = new MarkdownDocument();
-        doc.WriteLine("First quoted");
-        doc.WriteLine("Second quoted");
-        doc.ConvertToBlockquote(0);
-        doc.ConvertToBlockquote(1);
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("> First quoted\n> Second quoted\n", md);
-    }
-
-    [Fact]
-    public void ConvertToBlockquote_MultipleParagraphs()
+    public void MultipleBlocks()
     {
         var doc = new MarkdownDocument();
         doc.WriteParagraph("First quoted");
         doc.WriteParagraph("Second quoted");
-        doc.ConvertToBlockquote(0);
-        doc.ConvertToBlockquote(1);
-        doc.ConvertToBlockquote(2);
+        doc.ConvertToBlockquote(new BlockIndex(0));
+        doc.ConvertToBlockquote(new BlockIndex(1));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("> First quoted\n> \n> Second quoted", md);
+        Assert.Equal("> First quoted\n>\n> Second quoted", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToBlockquote_NestedLevel()
+    public void RangeConversion()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First");
+        doc.WriteParagraph("Second");
+        doc.WriteParagraph("Third");
+        doc.ConvertToBlockquote(new BlockIndex(0), new BlockIndex(2));
+
+        Assert.Equal("> First\n>\n> Second\n>\n> Third", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void NestedLevel1()
     {
         var doc = new MarkdownDocument();
         doc.Write("Hello, world!");
-        doc.ConvertToBlockquote(0, 1);
+        doc.ConvertToBlockquote(new BlockIndex(0), 1);
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("> Hello, world!", md);
-
-        doc.ConvertToBlockquote(0, 2);
-
-        md = doc.ToMarkdown("\n");
-        Assert.Equal("> > Hello, world!", md);
-
-        doc.ConvertToBlockquote(0, 5);
-
-        md = doc.ToMarkdown("\n");
-        Assert.Equal("> > > > > Hello, world!", md);
-
-        doc.ConvertToBlockquote(0, 0);
-
-        md = doc.ToMarkdown("\n");
-        Assert.Equal("Hello, world!", md);
+        Assert.Equal("> Hello, world!", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToBlockquote_FollowedByNormalText()
+    public void NestedLevel2()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+        doc.ConvertToBlockquote(new BlockIndex(0), 2);
+
+        Assert.Equal("> > Hello, world!", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void NestedLevel5()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+        doc.ConvertToBlockquote(new BlockIndex(0), 5);
+
+        Assert.Equal("> > > > > Hello, world!", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void NestedLevels()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 1);
+
+        Assert.Equal("> Hello, world!", doc.ToMarkdown("\n"));
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 2);
+
+        Assert.Equal("> > Hello, world!", doc.ToMarkdown("\n"));
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 5);
+
+        Assert.Equal("> > > > > Hello, world!", doc.ToMarkdown("\n"));
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 3);
+
+        Assert.Equal("> > > Hello, world!", doc.ToMarkdown("\n"));
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 0);
+
+        Assert.Equal("Hello, world!", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void RemoveBlockquote_WithLevel0()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("Hello, world!");
+        doc.ConvertToBlockquote(new BlockIndex(0), 2);
+
+        Assert.Equal("> > Hello, world!", doc.ToMarkdown("\n"));
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 0);
+
+        Assert.Equal("Hello, world!", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void FollowedByNormalText()
     {
         var doc = new MarkdownDocument();
         doc.WriteParagraph("Quoted text");
         doc.WriteParagraph("Normal text");
+        doc.ConvertToBlockquote(new BlockIndex(0));
 
-        doc.ConvertToBlockquote(0);
+        Assert.Equal("> Quoted text\n\nNormal text", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void LineWithinBlock()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("Normal line");
+        doc.WriteLine("Quoted line");
+        doc.ConvertToBlockquote(new BlockIndex(0), 1, lineWithinBlock: 1);
+
+        Assert.Equal("Normal line\n> Quoted line\n", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void MixedNestingLevels()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("Level one");
+        doc.WriteParagraph("Level two");
+        doc.WriteParagraph("Level three");
+
+        doc.ConvertToBlockquote(new BlockIndex(0), 1);
+        doc.ConvertToBlockquote(new BlockIndex(1), 2);
+        doc.ConvertToBlockquote(new BlockIndex(2), 3);
 
         var md = doc.ToMarkdown("\n");
+        Assert.Equal("> Level one\n>\n> > Level two\n>\n> > > Level three", md);
+    }
 
-        Assert.Equal("> Quoted text\n\nNormal text", md);
+    [Fact]
+    public void MultipleLinesOneBlock()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteLine("First item");
+        doc.WriteLine("Second item");
+        doc.WriteLine("Third item");
+        doc.ConvertToBlockquote(new BlockIndex(0));
+
+        var md = doc.ToMarkdown("\n");
+        Assert.Equal("> 1. First item\n> 2. Second item\n> 3. Third item\n", md);
     }
 
     [Fact]
@@ -103,17 +180,9 @@ public class ConvertToBlockquoteTests
         doc.WriteParagraph("Level two");
         doc.WriteParagraph("Level one");
 
-        doc.ConvertToBlockquote(0, 1);
-        doc.ConvertToBlockquote(1, 1);
-        doc.ConvertToBlockquote(2, 2);
-        doc.ConvertToBlockquote(3, 2);
-        doc.ConvertToBlockquote(4, 3);
-        doc.ConvertToBlockquote(5, 3);
-        doc.ConvertToBlockquote(6, 3);
-        doc.ConvertToBlockquote(7, 2);
-        doc.ConvertToBlockquote(8, 2);
-        doc.ConvertToBlockquote(9, 1);
-        doc.ConvertToBlockquote(10, 1);
+        doc.ConvertToBlockquote(new BlockIndex(0), new BlockIndex(5));
+        doc.ConvertToBlockquote(new BlockIndex(1), new BlockIndex(4));
+        doc.ConvertToBlockquote(new BlockIndex(2), new BlockIndex(3));
 
         var md = doc.ToMarkdown("\n");
 

@@ -3,65 +3,73 @@ namespace Kanawanagasaki.MarkdownEditor.Tests;
 public class ConvertToUnorderedListTests
 {
     [Fact]
-    public void ConvertToUnorderedList_SingleItem()
+    public void SingleItem()
     {
         var doc = new MarkdownDocument();
         doc.Write("Bullet item");
-        doc.ConvertToUnorderedList(0);
+        doc.ConvertToUnorderedList(new BlockIndex(0));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("- Bullet item", md);
+        Assert.Equal("- Bullet item", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToUnorderedList_TwoConsecutiveItems()
+    public void TwoItems_IndividualConversion()
     {
         var doc = new MarkdownDocument();
         doc.WriteLine("Apple");
         doc.WriteLine("Banana");
-        doc.ConvertToUnorderedList(0);
-        doc.ConvertToUnorderedList(1);
+        doc.ConvertToUnorderedList(new BlockIndex(0));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("- Apple\n- Banana\n", md);
+        Assert.Equal("- Apple\n- Banana\n", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToUnorderedList_WithStyledText()
+    public void BatchConversion()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("Apple");
+        doc.WriteParagraph("Banana");
+        doc.WriteParagraph("Cherry");
+        doc.ConvertToUnorderedList(new BlockIndex(0));
+        doc.ConvertToUnorderedList(new BlockIndex(1));
+        doc.ConvertToUnorderedList(new BlockIndex(2));
+
+        Assert.Equal("- Apple\n\n- Banana\n\n- Cherry", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void WithStyledText()
     {
         var doc = new MarkdownDocument();
         doc.Write("Italic item");
-        doc.ApplyItalic(0, 6);
-        doc.ConvertToUnorderedList(0);
+        doc.ApplyItalic(new TextOffset(0), new TextOffset(6));
+        doc.ConvertToUnorderedList(new BlockIndex(0));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("- *Italic* item", md);
+        Assert.Equal("- *Italic* item", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToUnorderedList_Paragraph()
+    public void LineWithinBlock()
     {
         var doc = new MarkdownDocument();
-        doc.WriteParagraph("Apple");
-        doc.WriteParagraph("Banana");
-        doc.ConvertToUnorderedList(0);
-        doc.ConvertToUnorderedList(2);
+        doc.WriteLine("Line one");
+        doc.WriteLine("Line two");
+        doc.ConvertToUnorderedList(new BlockIndex(0), lineWithinBlock: 1);
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("- Apple\n\n- Banana", md);
+        Assert.Equal("Line one\n- Line two\n", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void ConvertToUnorderedList_FillingTheGap()
+    public void Batch_PartialRange_LeavesOthersUnchanged()
     {
         var doc = new MarkdownDocument();
-        doc.WriteParagraph("Apple");
-        doc.WriteParagraph("Banana");
-        doc.ConvertToUnorderedList(0);
-        doc.ConvertToUnorderedList(1);
-        doc.ConvertToUnorderedList(2);
+        doc.WriteParagraph("Normal");
+        doc.WriteParagraph("List A");
+        doc.WriteParagraph("Also normal");
+        doc.WriteParagraph("List B");
+        doc.ConvertToUnorderedList(new BlockIndex(1));
+        doc.ConvertToUnorderedList(new BlockIndex(3));
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("- Apple\n- \n- Banana", md);
+        Assert.Equal("Normal\n\n- List A\n\nAlso normal\n\n- List B", doc.ToMarkdown("\n"));
     }
 }

@@ -3,7 +3,7 @@ namespace Kanawanagasaki.MarkdownEditor.Tests;
 public class InsertHorizontalRuleTests
 {
     [Fact]
-    public void InsertHorizontalRule_AtEnd()
+    public void AtEnd()
     {
         var doc = new MarkdownDocument();
         doc.Write("Before");
@@ -14,32 +14,29 @@ public class InsertHorizontalRuleTests
     }
 
     [Fact]
-    public void InsertHorizontalRule_AtBeginning()
+    public void AtBlockIndex0()
     {
         var doc = new MarkdownDocument();
         doc.Write("After");
-        doc.InsertHorizontalRule(0);
+        doc.InsertHorizontalRule(new BlockIndex(0));
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("---\n\nAfter", md);
     }
 
     [Fact]
-    public void InsertHorizontalRule_BetweenParagraphs()
+    public void BetweenParagraphs()
     {
         var doc = new MarkdownDocument();
-        doc.WriteLine("Before");
-        doc.Write("After");
-
-        Assert.Equal("Before\nAfter", doc.ToMarkdown("\n"));
-
-        doc.InsertHorizontalRule(1);
+        doc.WriteParagraph("Before");
+        doc.WriteParagraph("After");
+        doc.InsertHorizontalRule(new BlockIndex(1));
 
         Assert.Equal("Before\n\n---\n\nAfter", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void InsertHorizontalRule_InsertThenWrite()
+    public void InsertThenWrite()
     {
         var doc = new MarkdownDocument();
         doc.InsertHorizontalRule();
@@ -50,7 +47,7 @@ public class InsertHorizontalRuleTests
     }
 
     [Fact]
-    public void InsertHorizontalRule_WriteInsertWrite()
+    public void WriteInsertWrite()
     {
         var doc = new MarkdownDocument();
         doc.Write("One");
@@ -59,5 +56,17 @@ public class InsertHorizontalRuleTests
 
         var md = doc.ToMarkdown("\n");
         Assert.Equal("One\n\n---\n\nTwo", md);
+    }
+
+    [Fact]
+    public void AtEndOfDocument_WithBlockIndex()
+    {
+        var doc = new MarkdownDocument();
+        doc.WriteParagraph("First");
+        doc.WriteParagraph("Second");
+        doc.InsertHorizontalRule(new BlockIndex(2));
+
+        var md = doc.ToMarkdown("\n");
+        Assert.Equal("First\n\nSecond\n\n---", md);
     }
 }

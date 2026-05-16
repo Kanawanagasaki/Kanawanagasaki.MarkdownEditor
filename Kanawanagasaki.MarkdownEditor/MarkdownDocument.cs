@@ -974,10 +974,13 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         return CreateRange(start, end);
     }
 
-    public string ToMarkdown(string? newLine = null)
+    public string ToMarkdown()
+        => ToMarkdown(Environment.NewLine);
+
+    public string ToMarkdown(string newLine)
     {
         var sb = new StringBuilder();
-        RenderBlocks(Children, sb, 0, newLine ?? Environment.NewLine);
+        RenderBlocks(Children, sb, 0, newLine);
         return sb.ToString();
     }
 
@@ -1079,12 +1082,12 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             switch (blocks[i])
             {
                 case LeafBlock leaf when leaf.Inline is not null:
-                {
-                    int blockStart = offset;
-                    offset += GetBlockPlainTextLength(leaf);
-                    ranges.Add(new BlockPlainTextRange(leaf, blockStart, offset));
-                    break;
-                }
+                    {
+                        int blockStart = offset;
+                        offset += GetBlockPlainTextLength(leaf);
+                        ranges.Add(new BlockPlainTextRange(leaf, blockStart, offset));
+                        break;
+                    }
                 case ContainerBlock container:
                     CollectBlockPlainTextRanges(container.Children, ranges, ref offset, false);
                     break;
@@ -1237,7 +1240,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
 
         var newPara = new ParagraphBlock();
         var targetLine = para.Lines[lineIndex];
-        
+
         var child = targetLine.FirstChild;
         while (child is not null)
         {
@@ -1246,7 +1249,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
             child = next;
         }
 
-        bool wasFollowedByTrailingBreak = para.HasTrailingLineBreak 
+        bool wasFollowedByTrailingBreak = para.HasTrailingLineBreak
             && lineIndex == para.Lines.Count;
 
         para.Lines.RemoveAt(lineIndex);
@@ -1255,7 +1258,7 @@ public partial class MarkdownDocument : Ast.MarkdownDocument
         {
             para.HasTrailingLineBreak = false;
         }
-        
+
         else if (para.HasTrailingLineBreak && para.Lines.Count > 0 && para.Lines[^1].IsEmpty)
         {
             para.Lines.RemoveAt(para.Lines.Count - 1);

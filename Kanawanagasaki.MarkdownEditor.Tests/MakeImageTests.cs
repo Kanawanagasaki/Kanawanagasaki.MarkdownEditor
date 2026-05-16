@@ -3,92 +3,166 @@ namespace Kanawanagasaki.MarkdownEditor.Tests;
 public class MakeImageTests
 {
     [Fact]
-    public void MakeImage_BasicImage()
+    public void BasicImage_WithTextOffsets()
     {
         var doc = new MarkdownDocument();
         doc.Write("See the alt text here");
-        int start = "See the ".Length;
-        int end = start + "alt text".Length;
+        doc.MakeImage(new TextOffset(8), new TextOffset(16), "https://example.com/img.png");
 
-        doc.MakeImage(start, end, "https://example.com/img.png");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("See the ![alt text](https://example.com/img.png) here", md);
+        Assert.Equal("See the ![alt text](https://example.com/img.png) here", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeImage_WithTitle()
+    public void BasicImage_WithTextRange()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("See ");
+        var range = doc.Write("photo");
+        doc.Write(" here");
+        doc.MakeImage(range, "https://example.com/img.png");
+
+        Assert.Equal("See ![photo](https://example.com/img.png) here", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void WithTitle()
     {
         var doc = new MarkdownDocument();
         doc.Write("Photo here");
-        int start = "Photo ".Length;
-        int end = start + "here".Length;
+        var range = doc.Find("here");
+        Assert.NotNull(range);
+        doc.MakeImage(range.Value, "https://example.com/photo.png", "A photo");
 
-        doc.MakeImage(start, end, "https://example.com/photo.png", "A photo");
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("Photo ![here](https://example.com/photo.png \"A photo\")", md);
+        Assert.Equal("Photo ![here](https://example.com/photo.png \"A photo\")", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeImage_EntireText()
+    public void EntireText()
     {
         var doc = new MarkdownDocument();
-        doc.Write("logo");
-        doc.MakeImage(0, 4, "https://example.com/logo.png");
+        var range = doc.Write("logo");
+        doc.MakeImage(range, "https://example.com/logo.png");
 
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("![logo](https://example.com/logo.png)", md);
+        Assert.Equal("![logo](https://example.com/logo.png)", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeImage_ThenBoldText()
+    public void ImageThenBold_BoldInsideAltText()
     {
         var doc = new MarkdownDocument();
         doc.Write("View the Logo icon");
-        int start = "View the ".Length;
-        int end = start + "Logo".Length;
+        var range = doc.Find("Logo");
+        Assert.NotNull(range);
+        doc.MakeImage(range.Value, "https://example.com/logo.png");
+        doc.ApplyBold(range.Value);
 
-        doc.MakeImage(start, end, "https://example.com/logo.png");
-        doc.ApplyBold(start, end);
-
-        var md = doc.ToMarkdown("\n");
-        // Logic: Bold markers are inside the alt text brackets
-        Assert.Equal("View the ![**Logo**](https://example.com/logo.png) icon", md);
+        Assert.Equal("View the ![**Logo**](https://example.com/logo.png) icon", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeImage_OnBoldText()
+    public void BoldThenImage_BoldWrapsEntireImage()
     {
         var doc = new MarkdownDocument();
         doc.Write("View the Logo icon");
-        int start = "View the ".Length;
-        int end = start + "Logo".Length;
+        var range = doc.Find("Logo");
+        Assert.NotNull(range);
+        doc.ApplyBold(range.Value);
+        doc.MakeImage(range.Value, "https://example.com/logo.png");
 
-        doc.ApplyBold(start, end);
-        doc.MakeImage(start, end, "https://example.com/logo.png");
-
-        var md = doc.ToMarkdown("\n");
-        // Logic: Bold markers are inside the alt text brackets
-        Assert.Equal("View the **![Logo](https://example.com/logo.png)** icon", md);
+        Assert.Equal("View the **![Logo](https://example.com/logo.png)** icon", doc.ToMarkdown("\n"));
     }
 
     [Fact]
-    public void MakeImage_InsideBoldPhrase()
+    public void ImageInsideBold()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three four");
+
+        var threeRange = doc.Find("three");
+        Assert.NotNull(threeRange);
+        doc.MakeImage(threeRange.Value, "https://example.com/logo.png");
+
+        var oneTwoThreeRange = doc.Find("two three four");
+        Assert.NotNull(oneTwoThreeRange);
+        doc.ApplyBold(oneTwoThreeRange.Value);
+
+        Assert.Equal("One **two ![three](https://example.com/logo.png) four**", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void BoldWithImageInside()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three four");
+
+        var oneTwoThreeRange = doc.Find("two three four");
+        Assert.NotNull(oneTwoThreeRange);
+        doc.ApplyBold(oneTwoThreeRange.Value);
+
+        var threeRange = doc.Find("three");
+        Assert.NotNull(threeRange);
+        doc.MakeImage(threeRange.Value, "https://example.com/logo.png");
+
+        Assert.Equal("One **two ![three](https://example.com/logo.png) four**", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void BoldStartsInsideImage()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three four");
+
+        var twoRange = doc.Find("two");
+        Assert.NotNull(twoRange);
+        doc.MakeImage(twoRange.Value, "https://example.com/logo.png");
+
+        var twoThreeRange = doc.Find("two three");
+        Assert.NotNull(twoThreeRange);
+        doc.ApplyBold(twoThreeRange.Value);
+
+        Assert.Equal("One ![**two**](https://example.com/logo.png)** three** four", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void BoldStartsOutsideImage()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("One two three four");
+
+        var twoThreeRange = doc.Find("two three");
+        Assert.NotNull(twoThreeRange);
+        doc.ApplyBold(twoThreeRange.Value);
+
+        var twoRange = doc.Find("two");
+        Assert.NotNull(twoRange);
+        doc.MakeImage(twoRange.Value, "https://example.com/logo.png");
+
+        Assert.Equal("One **![two](https://example.com/logo.png) three** four", doc.ToMarkdown("\n"));
+    }
+
+    [Fact]
+    public void ImageInsideBoldPhrase()
     {
         var doc = new MarkdownDocument();
         doc.Write("Download our App now");
+        var imgRange = doc.Find("App");
+        Assert.NotNull(imgRange);
+        doc.MakeImage(imgRange.Value, "https://example.com/app-icon.png");
+        doc.ApplyBold(new TextOffset(0), new TextOffset(21));
 
-        int imgStart = "Download our ".Length;
-        int imgEnd = imgStart + "App".Length;
+        Assert.Equal("**Download our ![App](https://example.com/app-icon.png) now**", doc.ToMarkdown("\n"));
+    }
 
-        int boldStart = 0;
-        int boldEnd = "Download our App now".Length;
+    [Fact]
+    public void WriteThenMakeImage_FullChain()
+    {
+        var doc = new MarkdownDocument();
+        doc.Write("See ");
+        var range = doc.Write("logo");
+        doc.Write(" icon");
+        doc.MakeImage(range, "https://example.com/logo.png");
+        doc.ApplyBold(range);
 
-        doc.MakeImage(imgStart, imgEnd, "https://example.com/app-icon.png");
-        doc.ApplyBold(boldStart, boldEnd);
-
-        var md = doc.ToMarkdown("\n");
-        Assert.Equal("**Download our ![App](https://example.com/app-icon.png) now**", md);
+        Assert.Equal("See ![**logo**](https://example.com/logo.png) icon", doc.ToMarkdown("\n"));
     }
 }
